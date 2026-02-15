@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Upload, FileVideo, X, ShieldAlert, CheckCircle2 } from "lucide-react"
+import { Upload, FileVideo, X, ShieldAlert, CheckCircle2, Play, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AnalyzingScanner } from "@/components/analyzing-scanner"
 import { setUploadedFile } from "@/lib/upload-store"
@@ -151,6 +151,9 @@ export function UploadZone() {
           {"Max 500MB"}
         </span>
       </div>
+
+      {/* Example Videos */}
+      <ExampleVideos onSelect={handleFile} disabled={state === "uploading"} />
     </div>
   )
 }
@@ -232,6 +235,68 @@ function FileSelectedView({
         Begin Forensic Analysis
       </Button>
     </>
+  )
+}
+
+const EXAMPLE_VIDEOS = [
+  {
+    name: "Conversation Sample",
+    description: "Short conversation clip for testing",
+    url: "/examples/example-1.mp4",
+  },
+  {
+    name: "Putin Speech Analysis",
+    description: "Political speech deepfake detection demo",
+    url: "/examples/example-2.mp4",
+  },
+]
+
+function ExampleVideos({ onSelect, disabled }: { onSelect: (file: File) => void; disabled: boolean }) {
+  const [loadingIdx, setLoadingIdx] = useState<number | null>(null)
+
+  const handleExample = async (idx: number, url: string, name: string) => {
+    if (disabled || loadingIdx !== null) return
+    setLoadingIdx(idx)
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      const file = new File([blob], name.replace(/\s+/g, "_") + ".mp4", { type: "video/mp4" })
+      onSelect(file)
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingIdx(null)
+    }
+  }
+
+  return (
+    <div className="mt-6">
+      <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        Or try an example video
+      </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+        {EXAMPLE_VIDEOS.map((video, idx) => (
+          <button
+            key={idx}
+            onClick={() => handleExample(idx, video.url, video.name)}
+            disabled={disabled || loadingIdx !== null}
+            className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/30">
+              {loadingIdx === idx ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : (
+                <Play className="h-4 w-4 text-primary" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">{video.name}</p>
+              <p className="text-[11px] text-muted-foreground">{video.description}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
   )
 }
 
