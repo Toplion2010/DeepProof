@@ -10,6 +10,7 @@ import { FactCheckSection } from "@/components/results/fact-check-section"
 import type { ClaimStatus } from "@/components/results/fact-check-section"
 import { ArrowLeft, Download, Share2, FileVideo, Info, HardDrive, Film, Clock, Ratio, Calendar, Loader2, Mic, Brain, Languages, CheckCircle2, AlertTriangle, RefreshCw } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { getUploadedFile, type UploadedFileInfo } from "@/lib/upload-store"
 import { transcribeVideo, type TranscriptionResult } from "@/lib/transcribe"
 
@@ -43,6 +44,7 @@ const STEP_LABELS: Record<PipelineStep, string> = {
 }
 
 export default function ResultsPage() {
+  const router = useRouter()
   const [uploadedFile, setUploadedFile] = useState<UploadedFileInfo | null>(null)
   const [videoMeta, setVideoMeta] = useState<VideoMetadata | null>(null)
   const [transcript, setTranscript] = useState<TranscriptionResult | null>(null)
@@ -60,13 +62,13 @@ export default function ResultsPage() {
 
     const file = getUploadedFile()
     if (!file) {
-      setPipelineStep("done")
+      router.replace("/")
       return
     }
 
     setUploadedFile(file)
     runPipeline(file)
-  }, [])
+  }, [router])
 
   async function runPipeline(file: UploadedFileInfo) {
     try {
