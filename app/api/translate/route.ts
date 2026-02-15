@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
 
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-})
-
 interface TranslateRequest {
   segments: Array<{ timestamp: string; speaker: string; text: string }>
   sourceLanguage: string
@@ -13,6 +8,11 @@ interface TranslateRequest {
 
 export async function POST(request: Request) {
   try {
+    const groq = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+    })
+
     const body: TranslateRequest = await request.json()
     const { segments, sourceLanguage } = body
 

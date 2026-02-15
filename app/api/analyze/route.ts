@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
 
-const groq = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-})
-
 interface AnalyzeRequest {
   transcript: string
   fileName: string
@@ -16,6 +11,11 @@ interface AnalyzeRequest {
 
 export async function POST(request: Request) {
   try {
+    const groq = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: "https://api.groq.com/openai/v1",
+    })
+
     const body: AnalyzeRequest = await request.json()
     const { transcript, fileName, duration, resolution, language } = body
 
