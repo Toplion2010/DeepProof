@@ -1,4 +1,4 @@
-import { pipeline, type AutomaticSpeechRecognitionOutput } from "@huggingface/transformers"
+import type { AutomaticSpeechRecognitionOutput } from "@huggingface/transformers"
 
 export interface TranscriptSegment {
   timestamp: string
@@ -14,7 +14,7 @@ export interface TranscriptionResult {
 
 type ProgressCallback = (message: string) => void
 
-let cachedPipeline: Awaited<ReturnType<typeof pipeline>> | null = null
+let cachedPipeline: unknown | null = null
 
 /**
  * Extracts audio from a video blob URL and returns a 16kHz mono Float32Array
@@ -55,6 +55,7 @@ export async function transcribeVideo(
 
   onProgress?.("Loading Whisper model (first time may take ~150MB download)...")
   if (!cachedPipeline) {
+    const { pipeline } = await import("@huggingface/transformers")
     cachedPipeline = await pipeline(
       "automatic-speech-recognition",
       "onnx-community/whisper-small",
