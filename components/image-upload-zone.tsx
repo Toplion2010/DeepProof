@@ -2,10 +2,9 @@
 
 import { useState, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { Upload, FileVideo, X, ShieldAlert, CheckCircle2, Play, Loader2 } from "lucide-react"
+import { Upload, ImageIcon, X, ShieldAlert, CheckCircle2, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { AnalyzingScanner } from "@/components/analyzing-scanner"
-import { setUploadedFile } from "@/lib/upload-store"
+import { setUploadedImage } from "@/lib/image-store"
 
 type UploadState = "idle" | "dragging" | "uploading" | "complete"
 
@@ -16,14 +15,14 @@ interface SelectedFile {
   type: string
 }
 
-export function UploadZone() {
+export function ImageUploadZone() {
   const router = useRouter()
   const [state, setState] = useState<UploadState>("idle")
   const [selectedFile, setSelectedFile] = useState<SelectedFile | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const acceptedTypes = ["video/mp4", "video/webm", "video/quicktime"]
+  const acceptedTypes = ["image/jpeg", "image/png", "image/webp"]
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -32,11 +31,12 @@ export function UploadZone() {
 
   const handleFile = useCallback((file: File) => {
     if (!acceptedTypes.includes(file.type)) return
+    const typeLabel = file.type.split("/")[1].toUpperCase()
     setSelectedFile({
       file,
       name: file.name,
       size: formatSize(file.size),
-      type: file.type.split("/")[1].toUpperCase(),
+      type: typeLabel,
     })
     setState("idle")
   }, [])
@@ -69,13 +69,8 @@ export function UploadZone() {
   const handleAnalyze = () => {
     if (!selectedFile) return
     setState("uploading")
-  }
-
-  const handleScanComplete = () => {
-    if (selectedFile) {
-      setUploadedFile(selectedFile.file)
-    }
-    setState("complete")
+    setUploadedImage(selectedFile.file)
+    router.push("/images/results")
   }
 
   const handleReset = () => {
@@ -86,14 +81,6 @@ export function UploadZone() {
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      {/* Full-screen scanner overlay */}
-      {state === "uploading" && (
-        <AnalyzingScanner
-          fileName={selectedFile?.name ?? "video.mp4"}
-          onComplete={handleScanComplete}
-        />
-      )}
-
       {/* Upload Dropzone */}
       <div
         onDrop={handleDrop}
@@ -119,9 +106,11 @@ export function UploadZone() {
 
         <div className="relative z-10 flex flex-col items-center justify-center px-6 py-16">
           {state === "complete" ? (
-            <CompleteView fileName={selectedFile?.name ?? ""} onReset={handleReset} onViewReport={() => router.push("/results")} />
+            <CompleteView fileName={selectedFile?.name ?? ""} onReset={handleReset} />
           ) : selectedFile && state !== "uploading" ? (
             <FileSelectedView file={selectedFile} onRemove={handleReset} onAnalyze={handleAnalyze} />
+          ) : state === "uploading" ? (
+            <UploadingView />
           ) : (
             <IdleView isDragging={state === "dragging"} />
           )}
@@ -130,16 +119,16 @@ export function UploadZone() {
         <input
           ref={inputRef}
           type="file"
-          accept=".mp4,.webm,.mov"
+          accept=".jpg,.jpeg,.png,.webp"
           onChange={handleInputChange}
           className="hidden"
-          aria-label="Upload video file"
+          aria-label="Upload image file"
         />
       </div>
 
       {/* Supported formats */}
       <div className="mt-4 flex items-center justify-center gap-3">
-        {["MP4", "WebM", "MOV"].map((fmt) => (
+        {["JPEG", "PNG", "WebP"].map((fmt) => (
           <span
             key={fmt}
             className="rounded bg-secondary px-2.5 py-1 font-mono text-[10px] tracking-wider text-muted-foreground"
@@ -148,12 +137,9 @@ export function UploadZone() {
           </span>
         ))}
         <span className="text-xs text-muted-foreground">
-          {"Max 500MB"}
+          {"Max 25MB"}
         </span>
       </div>
-
-      {/* Example Videos */}
-      <ExampleVideos onSelect={handleFile} disabled={state === "uploading"} />
     </div>
   )
 }
@@ -175,7 +161,7 @@ function IdleView({ isDragging }: { isDragging: boolean }) {
         />
       </div>
       <p className="mb-2 text-base font-medium text-foreground">
-        {isDragging ? "Release to upload" : "Drop your video file here"}
+        {isDragging ? "Release to upload" : "Drop your image here"}
       </p>
       <p className="mb-6 text-sm text-muted-foreground">
         or click to browse files from your device
@@ -185,8 +171,8 @@ function IdleView({ isDragging }: { isDragging: boolean }) {
         size="sm"
         className="border-primary/30 text-primary hover:bg-primary/10 hover:text-primary"
       >
-        <FileVideo className="mr-2 h-4 w-4" />
-        Select Video
+        <ImageIcon className="mr-2 h-4 w-4" />
+        Select Image
       </Button>
     </>
   )
@@ -207,7 +193,7 @@ function FileSelectedView({
     <>
       <div className="mb-4 flex w-full max-w-md items-center gap-4 rounded-lg bg-secondary/60 p-4">
         <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/30">
-          <FileVideo className="h-6 w-6 text-primary" />
+          <ImageIcon className="h-6 w-6 text-primary" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{file.name}</p>
@@ -238,8 +224,7 @@ function FileSelectedView({
             className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
           />
           <span className="text-xs text-muted-foreground leading-relaxed">
-            I understand that video frames and audio will be temporarily sent to external AI
-            services (Groq) for analysis. No data is stored after processing.
+            I consent to send this image to Groq AI for authenticity analysis. No data is stored after processing.
           </span>
         </label>
       </div>
@@ -253,75 +238,29 @@ function FileSelectedView({
         className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
       >
         <ShieldAlert className="mr-2 h-4 w-4" />
-        Begin Forensic Analysis
+        Begin Authenticity Analysis
       </Button>
     </>
   )
 }
 
-const EXAMPLE_VIDEOS = [
-  {
-    name: "Conversation Sample",
-    description: "Short conversation clip for testing",
-    url: "/examples/example-1.mp4",
-  },
-  {
-    name: "Putin Speech Analysis",
-    description: "Political speech deepfake detection demo",
-    url: "/examples/example-2.mp4",
-  },
-]
-
-function ExampleVideos({ onSelect, disabled }: { onSelect: (file: File) => void; disabled: boolean }) {
-  const [loadingIdx, setLoadingIdx] = useState<number | null>(null)
-
-  const handleExample = async (idx: number, url: string, name: string) => {
-    if (disabled || loadingIdx !== null) return
-    setLoadingIdx(idx)
-    try {
-      const response = await fetch(url)
-      const blob = await response.blob()
-      const file = new File([blob], name.replace(/\s+/g, "_") + ".mp4", { type: "video/mp4" })
-      onSelect(file)
-    } catch {
-      // silently fail
-    } finally {
-      setLoadingIdx(null)
-    }
-  }
-
+function UploadingView() {
   return (
-    <div className="mt-6">
-      <p className="mb-3 text-center text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        Or try an example video
-      </p>
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
-        {EXAMPLE_VIDEOS.map((video, idx) => (
-          <button
-            key={idx}
-            onClick={() => handleExample(idx, video.url, video.name)}
-            disabled={disabled || loadingIdx !== null}
-            className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/30 hover:bg-primary/5 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/30">
-              {loadingIdx === idx ? (
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              ) : (
-                <Play className="h-4 w-4 text-primary" />
-              )}
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">{video.name}</p>
-              <p className="text-[11px] text-muted-foreground">{video.description}</p>
-            </div>
-          </button>
-        ))}
+    <>
+      <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-2 ring-primary/40">
+        <Loader2 className="h-7 w-7 animate-spin text-primary" />
       </div>
-    </div>
+      <p className="mb-2 text-base font-medium text-foreground">
+        Analyzing Image
+      </p>
+      <p className="text-sm text-muted-foreground">
+        Processing image and running authenticity checks...
+      </p>
+    </>
   )
 }
 
-function CompleteView({ fileName, onReset, onViewReport }: { fileName: string; onReset: () => void; onViewReport: () => void }) {
+function CompleteView({ fileName, onReset }: { fileName: string; onReset: () => void }) {
   return (
     <>
       <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-green-500/10 ring-2 ring-green-500/30">
@@ -329,14 +268,16 @@ function CompleteView({ fileName, onReset, onViewReport }: { fileName: string; o
       </div>
       <p className="mb-1 text-base font-medium text-foreground">Analysis Complete</p>
       <p className="mb-6 font-mono text-xs text-muted-foreground">{fileName}</p>
-      <div className="flex gap-3">
-        <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); onReset() }}>
-          New Analysis
-        </Button>
-        <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={(e) => { e.stopPropagation(); onViewReport() }}>
-          View Report
-        </Button>
-      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation()
+          onReset()
+        }}
+      >
+        New Analysis
+      </Button>
     </>
   )
 }

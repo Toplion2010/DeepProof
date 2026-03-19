@@ -4,10 +4,23 @@ export interface TranscriptSegment {
   text: string
 }
 
+export interface RawSegment {
+  start: number
+  end: number
+  text: string
+}
+
 export interface TranscriptionResult {
   language: string
   segments: TranscriptSegment[]
   fullText: string
+  rawSegments?: RawSegment[]
+  diarization?: {
+    method: string
+    speakerConfidence: string
+    speakerCount: number
+    gapThresholdMs: number
+  }
 }
 
 type ProgressCallback = (message: string) => void

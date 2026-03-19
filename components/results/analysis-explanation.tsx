@@ -4,9 +4,10 @@ interface AnalysisExplanationProps {
   explanation: string
   modelVersion: string
   timestamp: string
+  analysisVersion?: string
 }
 
-export function AnalysisExplanation({ explanation, modelVersion, timestamp }: AnalysisExplanationProps) {
+export function AnalysisExplanation({ explanation, modelVersion, timestamp, analysisVersion }: AnalysisExplanationProps) {
   return (
     <div className="rounded-xl border border-border bg-card">
       <div className="flex items-center gap-3 border-b border-border px-5 py-4">
@@ -27,6 +28,11 @@ export function AnalysisExplanation({ explanation, modelVersion, timestamp }: An
             <Info className="h-3 w-3" />
             Model: {modelVersion}
           </span>
+          {analysisVersion && (
+            <span className="inline-flex items-center rounded-md bg-primary/10 px-2.5 py-1 font-mono text-[10px] text-primary ring-1 ring-primary/30">
+              {analysisVersion}
+            </span>
+          )}
           <span className="font-mono text-[10px] text-muted-foreground">
             {timestamp}
           </span>

@@ -8,6 +8,8 @@ import { usePathname } from "next/navigation"
 const navLinks = [
   { label: "Dashboard", href: "/" },
   { label: "Analysis", href: "/results" },
+  { label: "Documents", href: "/documents" },
+  { label: "Images", href: "/images" },
   { label: "Reports", href: "/reports" },
   { label: "Settings", href: "/settings" },
 ]
@@ -57,7 +59,8 @@ export function DeepProofHeader() {
               key={link.label}
               href={link.href}
               className={`text-sm font-medium transition-colors ${
-                pathname === link.href
+                pathname === link.href ||
+                (link.href !== "/" && pathname.startsWith(link.href))
                   ? "text-primary"
                   : "text-muted-foreground hover:text-foreground"
               }`}

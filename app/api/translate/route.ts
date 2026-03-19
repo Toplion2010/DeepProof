@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
+import { parseAndRepairJson } from "@/lib/json-repair"
 
 interface TranslateRequest {
   segments: Array<{ timestamp: string; speaker: string; text: string }>
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
 
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
+      temperature: 0,
       max_tokens: 4096,
       response_format: { type: "json_object" },
       messages: [
@@ -52,10 +54,10 @@ ${numberedTexts}`,
     })
 
     const responseText = completion.choices[0]?.message?.content ?? ""
-    const cleaned = responseText.replace(/```json\s*|```\s*/g, "").trim()
-    const parsed = JSON.parse(cleaned)
+    const { data: parsed, error } = parseAndRepairJson<{ translations: string[] }>(responseText)
 
-    if (!Array.isArray(parsed.translations)) {
+    if (!parsed || !Array.isArray(parsed.translations)) {
+      console.warn("Translation response parse failed:", error)
       return NextResponse.json(
         { error: "AI response missing translations array" },
         { status: 502 }
@@ -72,14 +74,6 @@ ${numberedTexts}`,
     return NextResponse.json({ segments: translatedSegments })
   } catch (error) {
     console.error("Translation API error:", error)
-
-    if (error instanceof SyntaxError) {
-      return NextResponse.json(
-        { error: "Failed to parse AI translation response" },
-        { status: 502 }
-      )
-    }
-
     return NextResponse.json(
       { error: "Translation failed" },
       { status: 500 }
