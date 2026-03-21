@@ -66,15 +66,15 @@ export function UploadZone() {
     if (file) handleFile(file)
   }
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     if (!selectedFile) return
+    // Persist to IndexedDB before starting animation — gives IDB time to
+    // finish writing while the scanner runs (critical for iOS Safari)
+    await setUploadedFile(selectedFile.file)
     setState("uploading")
   }
 
   const handleScanComplete = () => {
-    if (selectedFile) {
-      setUploadedFile(selectedFile.file)
-    }
     setState("complete")
   }
 

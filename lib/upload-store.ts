@@ -1,7 +1,10 @@
 /**
  * Store for sharing the uploaded video file between the home page and results page.
- * Uses in-memory store with IndexedDB fallback for iOS Safari, which may
- * do a full page reload on navigation and wipe JS context.
+ * Uses in-memory store with IndexedDB fallback for iOS Safari, which does
+ * full page reloads on navigation and wipes JS context.
+ *
+ * Files are stored as ArrayBuffer + metadata in IDB (raw File objects
+ * are not reliably supported across all browsers).
  */
 
 export interface UploadedFileInfo {
@@ -19,11 +22,21 @@ const DB_NAME = "deepproof-uploads"
 const STORE_NAME = "files"
 const FILE_KEY = "current-upload"
 
+interface StoredFileData {
+  buffer: ArrayBuffer
+  name: string
+  type: string
+  size: number
+  lastModified: number
+}
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1)
     req.onupgradeneeded = () => {
-      req.result.createObjectStore(STORE_NAME)
+      if (!req.result.objectStoreNames.contains(STORE_NAME)) {
+        req.result.createObjectStore(STORE_NAME)
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -32,9 +45,17 @@ function openDB(): Promise<IDBDatabase> {
 
 async function persistToIDB(file: File): Promise<void> {
   try {
+    const buffer = await file.arrayBuffer()
+    const data: StoredFileData = {
+      buffer,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      lastModified: file.lastModified,
+    }
     const db = await openDB()
     const tx = db.transaction(STORE_NAME, "readwrite")
-    tx.objectStore(STORE_NAME).put(file, FILE_KEY)
+    tx.objectStore(STORE_NAME).put(data, FILE_KEY)
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
@@ -50,12 +71,23 @@ async function loadFromIDB(): Promise<File | null> {
     const db = await openDB()
     const tx = db.transaction(STORE_NAME, "readonly")
     const req = tx.objectStore(STORE_NAME).get(FILE_KEY)
-    const file = await new Promise<File | null>((resolve, reject) => {
-      req.onsuccess = () => resolve(req.result instanceof File ? req.result : null)
+    const data = await new Promise<StoredFileData | null>((resolve, reject) => {
+      req.onsuccess = () => {
+        const result = req.result
+        if (result && result.buffer instanceof ArrayBuffer) {
+          resolve(result as StoredFileData)
+        } else {
+          resolve(null)
+        }
+      }
       req.onerror = () => reject(req.error)
     })
     db.close()
-    return file
+    if (!data) return null
+    return new File([data.buffer], data.name, {
+      type: data.type,
+      lastModified: data.lastModified,
+    })
   } catch {
     return null
   }
@@ -92,13 +124,18 @@ function buildInfo(file: File): UploadedFileInfo {
   }
 }
 
-export function setUploadedFile(file: File) {
+/**
+ * Store the file in memory AND persist to IndexedDB.
+ * Returns a promise that resolves once IDB write is complete.
+ * Call this early (e.g. when user clicks "Analyze") so the write
+ * finishes before navigation happens.
+ */
+export async function setUploadedFile(file: File): Promise<void> {
   if (stored?.objectUrl) {
     URL.revokeObjectURL(stored.objectUrl)
   }
   stored = buildInfo(file)
-  // Persist to IndexedDB in background (for iOS Safari)
-  persistToIDB(file)
+  await persistToIDB(file)
 }
 
 export function getUploadedFile(): UploadedFileInfo | null {
