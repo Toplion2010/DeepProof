@@ -11,7 +11,7 @@ import type { ClaimStatus } from "@/components/results/fact-check-section"
 import { ArrowLeft, Download, Share2, FileVideo, Info, HardDrive, Film, Clock, Ratio, Calendar, Loader2, Mic, Brain, Languages, CheckCircle2, AlertTriangle, RefreshCw, Eye, Calculator, Search, Sparkles, Shield, Waves, ImageIcon } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { getUploadedFile, type UploadedFileInfo } from "@/lib/upload-store"
+import { getUploadedFileAsync, type UploadedFileInfo } from "@/lib/upload-store"
 import { transcribeVideo, type TranscriptionResult } from "@/lib/transcribe"
 import { extractFrames, extractSequenceWindow, getTimestamps, type ExtractedFrames } from "@/lib/extract-frames"
 import { detectDeepfakeFrames, type FrameDetectionResult } from "@/lib/detect-deepfake"
@@ -133,14 +133,14 @@ export default function ResultsPage() {
     if (pipelineStarted.current) return
     pipelineStarted.current = true
 
-    const file = getUploadedFile()
-    if (!file) {
-      setSessionExpired(true)
-      return
-    }
-
-    setUploadedFile(file)
-    runPipeline(file)
+    getUploadedFileAsync().then((file) => {
+      if (!file) {
+        setSessionExpired(true)
+        return
+      }
+      setUploadedFile(file)
+      runPipeline(file)
+    })
   }, [router])
 
   async function runPipeline(file: UploadedFileInfo) {
