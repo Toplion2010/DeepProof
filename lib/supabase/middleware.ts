@@ -30,8 +30,23 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // Refresh the session silently — don't block unauthenticated users
-  await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const isAuthRoute = request.nextUrl.pathname.startsWith('/auth')
+
+  // Redirect unauthenticated users to login (except auth pages themselves)
+  if (!user && !isAuthRoute) {
+    const loginUrl = request.nextUrl.clone()
+    loginUrl.pathname = '/auth/login'
+    return NextResponse.redirect(loginUrl)
+  }
+
+  // Redirect authenticated users away from login/signup to dashboard
+  if (user && isAuthRoute && !request.nextUrl.pathname.startsWith('/auth/reset-password')) {
+    const dashboardUrl = request.nextUrl.clone()
+    dashboardUrl.pathname = '/'
+    return NextResponse.redirect(dashboardUrl)
+  }
 
   return supabaseResponse
 }
