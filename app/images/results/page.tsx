@@ -20,6 +20,7 @@ import {
   type ImageFinding,
   type ImagePipelineStep,
 } from "@/lib/image-analysis"
+import { saveScan } from "@/lib/scans"
 
 interface ImageAnalysisResult {
   finalFraudScore: number
@@ -63,6 +64,7 @@ export default function ImageResultsPage() {
     let mounted = true
 
     async function runAnalysis() {
+      const analysisStart = Date.now()
       try {
         setStep("extracting")
         setError(null)
@@ -113,6 +115,13 @@ export default function ImageResultsPage() {
           explanation: apiResult.explanation || "",
           findings: apiResult.findings || [],
           degradedReasons: apiResult.degradedReasons || [],
+        })
+
+        await saveScan({
+          fileName: uploadedImage.name,
+          fileType: "image",
+          score: apiResult.finalFraudScore ?? 50,
+          durationMs: Date.now() - analysisStart,
         })
 
         setStep("complete")

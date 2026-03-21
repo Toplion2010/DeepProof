@@ -1,9 +1,43 @@
 import { NextResponse } from "next/server"
 import OpenAI from "openai"
+import { writeFile, unlink, readFile } from "fs/promises"
+import { execFile } from "child_process"
+import { promisify } from "util"
+import { tmpdir } from "os"
+import { join } from "path"
+import { randomUUID } from "crypto"
 
+const execFileAsync = promisify(execFile)
 const GAP_THRESHOLD_S = 2.0
 
+/** Extract audio from video as mp3 using ffmpeg, returns the audio buffer. */
+async function extractAudio(videoBuffer: Buffer): Promise<{ buffer: Buffer; path: string }> {
+  const id = randomUUID()
+  const videoPath = join(tmpdir(), `dp-video-${id}.mp4`)
+  const audioPath = join(tmpdir(), `dp-audio-${id}.mp3`)
+
+  await writeFile(videoPath, videoBuffer)
+  try {
+    await execFileAsync("ffmpeg", [
+      "-i", videoPath,
+      "-vn",              // no video
+      "-ac", "1",         // mono
+      "-ar", "16000",     // 16kHz (Whisper native)
+      "-b:a", "48k",      // low bitrate — keeps file small
+      "-f", "mp3",
+      "-y",               // overwrite
+      audioPath,
+    ], { timeout: 60_000 })
+
+    const buffer = await readFile(audioPath)
+    return { buffer, path: audioPath }
+  } finally {
+    await unlink(videoPath).catch(() => {})
+  }
+}
+
 export async function POST(request: Request) {
+  let audioPath: string | undefined
   try {
     const groq = new OpenAI({
       apiKey: process.env.GROQ_API_KEY,
@@ -20,8 +54,15 @@ export async function POST(request: Request) {
       )
     }
 
+    // Extract audio track only — much smaller than the full video
+    const videoBuffer = Buffer.from(await file.arrayBuffer())
+    const audio = await extractAudio(videoBuffer)
+    audioPath = audio.path
+
+    const audioFile = new File([audio.buffer], "audio.mp3", { type: "audio/mpeg" })
+
     const transcription = await groq.audio.transcriptions.create({
-      file,
+      file: audioFile,
       model: "whisper-large-v3-turbo",
       response_format: "verbose_json",
     })
@@ -90,7 +131,8 @@ export async function POST(request: Request) {
       message.includes("no audio") ||
       message.includes("Invalid file") ||
       message.includes("could not process") ||
-      message.includes("400")
+      message.includes("400") ||
+      message.includes("does not contain any stream")
 
     if (isNoAudio) {
       // Return empty transcription instead of error for silent/no-audio videos
@@ -109,8 +151,10 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { error: "Transcription failed. Check your GROQ_API_KEY." },
+      { error: `Transcription failed: ${message}` },
       { status: 500 }
     )
+  } finally {
+    if (audioPath) await unlink(audioPath).catch(() => {})
   }
 }

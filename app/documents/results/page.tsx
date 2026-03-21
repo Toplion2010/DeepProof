@@ -12,6 +12,7 @@ import Link from "next/link"
 import { getUploadedDocument, clearUploadedDocument } from "@/lib/document-store"
 import { extractDocument, type DocumentExtraction } from "@/lib/document-extract"
 import { computeMetadataSignals, type DocumentFinding, type DocumentPipelineStep } from "@/lib/document-analysis"
+import { saveScan } from "@/lib/scans"
 
 interface DocumentAnalysisResult {
   finalFraudScore: number
@@ -55,6 +56,7 @@ export default function DocumentResultsPage() {
     let mounted = true
 
     async function runAnalysis() {
+      const analysisStart = Date.now()
       try {
         setStep("extracting")
         setError(null)
@@ -116,6 +118,13 @@ export default function DocumentResultsPage() {
           explanation: apiResult.explanation || "",
           findings: apiResult.findings || [],
           degradedReasons: apiResult.degradedReasons || [],
+        })
+
+        await saveScan({
+          fileName: uploadedDocument.name,
+          fileType: "document",
+          score: finalScore,
+          durationMs: Date.now() - analysisStart,
         })
 
         setStep("complete")

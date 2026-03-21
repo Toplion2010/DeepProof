@@ -17,19 +17,19 @@ describe("computeContentProfile", () => {
   it("returns face-heavy when high face ratio and short transcript", () => {
     const result = computeContentProfile(8, 10, 100, true, true)
     expect(result.type).toBe("face-heavy")
-    expect(result.weights).toEqual({ visual: 0.7, text: 0.3 })
+    expect(result.weights).toEqual({ visual: 0.85, text: 0.15 })
   })
 
   it("returns speech-heavy when low face ratio and long transcript", () => {
     const result = computeContentProfile(1, 10, 600, true, true)
     expect(result.type).toBe("speech-heavy")
-    expect(result.weights).toEqual({ visual: 0.4, text: 0.6 })
+    expect(result.weights).toEqual({ visual: 0.55, text: 0.45 })
   })
 
   it("returns balanced for moderate content", () => {
     const result = computeContentProfile(5, 10, 300, true, true)
     expect(result.type).toBe("balanced")
-    expect(result.weights).toEqual({ visual: 0.6, text: 0.4 })
+    expect(result.weights).toEqual({ visual: 0.7, text: 0.3 })
   })
 
   it("returns balanced when transcriptLength is undefined but has audio", () => {
@@ -41,7 +41,7 @@ describe("computeContentProfile", () => {
   it("returns balanced when neither frames nor audio", () => {
     const result = computeContentProfile(0, 0, undefined, false, false)
     expect(result.type).toBe("balanced")
-    expect(result.weights).toEqual({ visual: 0.6, text: 0.4 })
+    expect(result.weights).toEqual({ visual: 0.7, text: 0.3 })
   })
 
   it("returns balanced at boundary conditions (faceRatio exactly 0.6)", () => {

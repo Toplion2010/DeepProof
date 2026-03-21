@@ -3,6 +3,8 @@
  * Manages worker lifecycle, task queue, timeouts, and fallback.
  */
 
+import { createForensicWorker } from "./forensic-worker-inline"
+
 export interface ForensicResult {
   elaScore: number
   elaFindings: string[]
@@ -12,10 +14,10 @@ export interface ForensicResult {
   degraded: boolean
 }
 
-const FORENSIC_TIMEOUT_MS = 12_000
-const MAX_FRAMES = 12
+const FORENSIC_TIMEOUT_MS = 20_000
+const MAX_FRAMES = 8
 const MAX_FRAMES_FALLBACK = 4
-const MAX_FRAMES_LOW_MEMORY = 6
+const MAX_FRAMES_LOW_MEMORY = 5
 const MAX_PAYLOAD_BYTES = 10 * 1024 * 1024 // 10MB
 
 let worker: Worker | null = null
@@ -25,7 +27,7 @@ let pendingTask: Promise<void> = Promise.resolve()
 
 function getWorker(): Worker {
   if (!worker) {
-    worker = new Worker(new URL("./forensic-worker.ts", import.meta.url))
+    worker = createForensicWorker()
     worker.onerror = () => {
       worker?.terminate()
       worker = null
@@ -161,11 +163,18 @@ export async function runForensicAnalysis(
   }
 
   // Empty frame guard
-  if (!frames || frames.length === 0) return degradedResult
+  if (!frames || frames.length === 0) {
+    console.warn("[forensic] No frames provided")
+    return degradedResult
+  }
 
   // Validate and filter frames
   const validFrames = frames.filter(isValidBase64Image)
-  if (validFrames.length === 0) return degradedResult
+  if (validFrames.length === 0) {
+    console.warn(`[forensic] All ${frames.length} frames failed validation`)
+    return degradedResult
+  }
+  console.log(`[forensic] ${validFrames.length}/${frames.length} frames passed validation`)
 
   // Sample down to max frame count
   const maxFrames = getMaxFrames()
@@ -181,6 +190,8 @@ export async function runForensicAnalysis(
 
   onProgress?.("Running error level analysis...")
 
+  console.log(`[forensic] Starting worker analysis with ${sampled.length} frames (payload ~${(estimatePayloadSize(sampled) / 1024).toFixed(0)}KB)`)
+
   try {
     const result = await Promise.race([
       runWorkerAnalysis(sampled, onProgress),
@@ -188,8 +199,10 @@ export async function runForensicAnalysis(
         setTimeout(() => reject(new Error("Forensic analysis timed out")), FORENSIC_TIMEOUT_MS)
       ),
     ])
+    console.log("[forensic] Analysis completed successfully", { elaScore: result.elaScore, noiseScore: result.noiseScore, framesAnalyzed: result.framesAnalyzed })
     return result
-  } catch {
+  } catch (err) {
+    console.warn("[forensic] Error:", err instanceof Error ? err.message : err)
     return degradedResult
   }
 }

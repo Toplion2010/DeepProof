@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { DeepProofHeader } from "@/components/deepproof-header"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -11,75 +12,14 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Input } from "@/components/ui/input"
-import { FileVideo, Search, Download, Eye } from "lucide-react"
-import Link from "next/link"
+import { FileVideo, FileText, ImageIcon, Search, Loader2 } from "lucide-react"
+import { fetchRecentScans, type ScanRow } from "@/lib/scans"
 
-const mockReports = [
-  {
-    id: "RPT-0047",
-    fileName: "press_conference_02.webm",
-    date: "Feb 13, 2026",
-    score: 73,
-    status: "Deepfake Detected" as const,
-    fileSize: "142.8 MB",
-  },
-  {
-    id: "RPT-0046",
-    fileName: "interview_ceo_q4.mp4",
-    date: "Feb 12, 2026",
-    score: 12,
-    status: "Authentic" as const,
-    fileSize: "98.3 MB",
-  },
-  {
-    id: "RPT-0045",
-    fileName: "news_segment_clip.mov",
-    date: "Feb 11, 2026",
-    score: 89,
-    status: "Deepfake Detected" as const,
-    fileSize: "210.1 MB",
-  },
-  {
-    id: "RPT-0044",
-    fileName: "product_demo_v3.mp4",
-    date: "Feb 10, 2026",
-    score: 8,
-    status: "Authentic" as const,
-    fileSize: "65.7 MB",
-  },
-  {
-    id: "RPT-0043",
-    fileName: "social_media_reel.mp4",
-    date: "Feb 9, 2026",
-    score: 54,
-    status: "Inconclusive" as const,
-    fileSize: "34.2 MB",
-  },
-  {
-    id: "RPT-0042",
-    fileName: "webinar_recording.webm",
-    date: "Feb 8, 2026",
-    score: 5,
-    status: "Authentic" as const,
-    fileSize: "312.0 MB",
-  },
-  {
-    id: "RPT-0041",
-    fileName: "surveillance_cam_03.mp4",
-    date: "Feb 7, 2026",
-    score: 67,
-    status: "Deepfake Detected" as const,
-    fileSize: "78.9 MB",
-  },
-  {
-    id: "RPT-0040",
-    fileName: "testimony_clip.mov",
-    date: "Feb 6, 2026",
-    score: 91,
-    status: "Deepfake Detected" as const,
-    fileSize: "156.4 MB",
-  },
-]
+const fileTypeIcons: Record<string, typeof FileVideo> = {
+  video: FileVideo,
+  document: FileText,
+  image: ImageIcon,
+}
 
 function getScoreColor(score: number) {
   if (score <= 30) return "text-green-400"
@@ -87,18 +27,48 @@ function getScoreColor(score: number) {
   return "text-red-400"
 }
 
-function getStatusBadge(status: "Authentic" | "Deepfake Detected" | "Inconclusive") {
+function getStatusBadge(status: "authentic" | "deepfake" | "inconclusive") {
   switch (status) {
-    case "Authentic":
-      return <Badge className="bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/10">{status}</Badge>
-    case "Deepfake Detected":
-      return <Badge className="bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/10">{status}</Badge>
-    case "Inconclusive":
-      return <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/10">{status}</Badge>
+    case "authentic":
+      return <Badge className="bg-green-500/10 text-green-400 border-green-500/20 hover:bg-green-500/10">Authentic</Badge>
+    case "deepfake":
+      return <Badge className="bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/10">Deepfake Detected</Badge>
+    case "inconclusive":
+      return <Badge className="bg-yellow-500/10 text-yellow-400 border-yellow-500/20 hover:bg-yellow-500/10">Inconclusive</Badge>
   }
 }
 
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
 export default function ReportsPage() {
+  const [scans, setScans] = useState<ScanRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState("")
+
+  useEffect(() => {
+    fetchRecentScans().then((data) => {
+      setScans(data)
+      setLoading(false)
+    })
+  }, [])
+
+  const filtered = searchQuery
+    ? scans.filter((s) =>
+        s.file_name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : scans
+
+  const total = scans.length
+  const deepfakes = scans.filter((s) => s.status === "deepfake").length
+  const authentic = scans.filter((s) => s.status === "authentic").length
+  const inconclusive = scans.filter((s) => s.status === "inconclusive").length
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <DeepProofHeader />
@@ -109,7 +79,7 @@ export default function ReportsPage() {
           <div>
             <h2 className="text-xl font-semibold text-foreground">Analysis Reports</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Browse and export past deepfake analysis results
+              Browse past deepfake analysis results
             </p>
           </div>
           <div className="relative w-full sm:w-72">
@@ -117,6 +87,8 @@ export default function ReportsPage() {
             <Input
               placeholder="Search reports..."
               className="pl-9 bg-card border-border"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
         </div>
@@ -124,10 +96,10 @@ export default function ReportsPage() {
         {/* Stats row */}
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {[
-            { label: "Total Reports", value: "47" },
-            { label: "Deepfakes Found", value: "18" },
-            { label: "Authentic", value: "24" },
-            { label: "Inconclusive", value: "5" },
+            { label: "Total Reports", value: loading ? "--" : String(total) },
+            { label: "Deepfakes Found", value: loading ? "--" : String(deepfakes) },
+            { label: "Authentic", value: loading ? "--" : String(authentic) },
+            { label: "Inconclusive", value: loading ? "--" : String(inconclusive) },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -143,60 +115,62 @@ export default function ReportsPage() {
 
         {/* Reports table */}
         <div className="rounded-xl border border-border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border hover:bg-transparent">
-                <TableHead className="text-muted-foreground">Report ID</TableHead>
-                <TableHead className="text-muted-foreground">File</TableHead>
-                <TableHead className="text-muted-foreground">Date</TableHead>
-                <TableHead className="text-muted-foreground">Score</TableHead>
-                <TableHead className="text-muted-foreground">Status</TableHead>
-                <TableHead className="text-right text-muted-foreground">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {mockReports.map((report) => (
-                <TableRow key={report.id} className="border-border">
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {report.id}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <FileVideo className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{report.fileName}</p>
-                        <p className="text-xs text-muted-foreground">{report.fileSize}</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{report.date}</TableCell>
-                  <TableCell>
-                    <span className={`font-mono text-sm font-semibold ${getScoreColor(report.score)}`}>
-                      {report.score}%
-                    </span>
-                  </TableCell>
-                  <TableCell>{getStatusBadge(report.status)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Link
-                        href="/results"
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label="View report"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Link>
-                      <button
-                        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                        aria-label="Download report"
-                      >
-                        <Download className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </TableCell>
+          {loading ? (
+            <div className="flex items-center justify-center gap-3 py-16">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">Loading reports...</p>
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="py-16 text-center">
+              <p className="text-sm text-muted-foreground">
+                {searchQuery ? "No reports match your search" : "No analysis reports yet"}
+              </p>
+              {!searchQuery && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Run your first scan from the Dashboard to see results here
+                </p>
+              )}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="border-border hover:bg-transparent">
+                  <TableHead className="text-muted-foreground">File</TableHead>
+                  <TableHead className="text-muted-foreground">Type</TableHead>
+                  <TableHead className="text-muted-foreground">Date</TableHead>
+                  <TableHead className="text-muted-foreground">Score</TableHead>
+                  <TableHead className="text-muted-foreground">Status</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((scan) => {
+                  const Icon = fileTypeIcons[scan.file_type] ?? FileVideo
+                  return (
+                    <TableRow key={scan.id} className="border-border">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-4 w-4 text-muted-foreground" />
+                          <p className="text-sm font-medium text-foreground">{scan.file_name}</p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm capitalize text-muted-foreground">
+                        {scan.file_type}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {formatDate(scan.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <span className={`font-mono text-sm font-semibold ${getScoreColor(scan.score)}`}>
+                          {scan.score}%
+                        </span>
+                      </TableCell>
+                      <TableCell>{getStatusBadge(scan.status)}</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
         </div>
 
         {/* Footer */}

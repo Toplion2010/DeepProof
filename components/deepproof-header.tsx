@@ -1,22 +1,36 @@
 "use client"
 
-import { ShieldCheck, Activity, Wifi } from "lucide-react"
+import { ShieldCheck, Activity, Wifi, LogOut } from "lucide-react"
 import { useEffect, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import type { User as SupabaseUser } from "@supabase/supabase-js"
+import { createClient } from "@/lib/supabase/client"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 const navLinks = [
   { label: "Dashboard", href: "/" },
-  { label: "Analysis", href: "/results" },
   { label: "Documents", href: "/documents" },
   { label: "Images", href: "/images" },
   { label: "Reports", href: "/reports" },
-  { label: "Settings", href: "/settings" },
 ]
+
+function getUserInitials(email: string): string {
+  return email.slice(0, 2).toUpperCase()
+}
 
 export function DeepProofHeader() {
   const [time, setTime] = useState("")
+  const [user, setUser] = useState<SupabaseUser | null>(null)
   const pathname = usePathname()
+  const router = useRouter()
 
   useEffect(() => {
     const update = () => {
@@ -34,6 +48,22 @@ export function DeepProofHeader() {
     const interval = setInterval(update, 1000)
     return () => clearInterval(interval)
   }, [])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => setUser(session?.user ?? null)
+    )
+    return () => subscription.unsubscribe()
+  }, [])
+
+  async function handleSignOut() {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push("/auth/login")
+    router.refresh()
+  }
 
   return (
     <header className="border-b border-border/60 bg-card/50 backdrop-blur-sm">
@@ -79,9 +109,32 @@ export function DeepProofHeader() {
             <Wifi className="h-3 w-3 text-primary" />
             <span>{time || "--:--:--"}</span>
           </div>
-          <div className="h-8 w-8 rounded-full bg-primary/20 ring-1 ring-primary/40 flex items-center justify-center">
-            <span className="text-xs font-semibold text-primary">OP</span>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="h-8 w-8 rounded-full bg-primary/20 ring-1 ring-primary/40 flex items-center justify-center transition-colors hover:bg-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/50">
+                <span className="text-xs font-semibold text-primary">
+                  {user?.email ? getUserInitials(user.email) : "??"}
+                </span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-sm font-medium leading-none">
+                    {user?.email ? getUserInitials(user.email) : "User"}
+                  </p>
+                  <p className="text-xs leading-none text-muted-foreground">
+                    {user?.email ?? ""}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>

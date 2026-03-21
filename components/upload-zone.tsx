@@ -266,9 +266,9 @@ const EXAMPLE_VIDEOS = [
     url: "/examples/example-1.mp4",
   },
   {
-    name: "Putin Speech Analysis",
-    description: "Political speech deepfake detection demo",
-    url: "/examples/example-2.mp4",
+    name: "Snow in Kamchatka",
+    description: "Snow scenery clip for testing",
+    url: "/examples/snow_in_kamchatka.mp4",
   },
 ]
 

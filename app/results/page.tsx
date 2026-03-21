@@ -23,8 +23,9 @@ import { extractAudioFeatures } from "@/lib/audio-features"
 import { clusterSpeakersWithTimeout, type SpeakerClusterResult } from "@/lib/speaker-cluster"
 import { logMetrics, incrementMetric } from "@/lib/metrics"
 import { FrameExplanationSection } from "@/components/results/frame-explanation-section"
-import type { FrameExplanationResult, AnalysisMode } from "@/lib/frame-explanation"
+import { computeFrameExplanationModifier, type FrameExplanationResult, type AnalysisMode } from "@/lib/frame-explanation"
 import { selectFramesForExplanation, resizeFrameForExplanation, quickSimilarity } from "@/lib/frame-selection"
+import { saveScan } from "@/lib/scans"
 
 interface VideoMetadata {
   duration: string
@@ -116,7 +117,7 @@ export default function ResultsPage() {
   const [temporalResult, setTemporalResult] = useState<TemporalAnalysisResult | null>(null)
   const [speakerResult, setSpeakerResult] = useState<SpeakerClusterResult | null>(null)
   const [frameExplanations, setFrameExplanations] = useState<FrameExplanationResult | null>(null)
-  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("fast")
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("deep")
   const [frameExplanationLoading, setFrameExplanationLoading] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const pipelineStarted = useRef(false)
@@ -371,7 +372,7 @@ export default function ResultsPage() {
           const selectedFrames = selectFramesForExplanation(
             allFrames,
             timestampsRef.current,
-            "fast",
+            "deep",
             detection?.perFrameScores
           )
 
@@ -415,7 +416,7 @@ export default function ResultsPage() {
                 })),
                 fileName: file.name,
                 duration: meta.duration,
-                mode: "fast",
+                mode: "deep",
                 perFrameScores: detection?.perFrameScores,
                 forensicHints: forensicHintsData,
               }),
@@ -526,6 +527,12 @@ export default function ResultsPage() {
         if (Number.isNaN(temporalModifier)) temporalModifier = 0
         visualScore += Math.max(-5, Math.min(5, temporalModifier))
       }
+
+      // Apply frame explanation modifier — reduce score when vision LLM
+      // finds only benign anomalies (e.g. compression artifacts)
+      if (frameExplResult && !frameExplResult.degraded && frameExplResult.frames.length > 0) {
+        visualScore += computeFrameExplanationModifier(frameExplResult)
+      }
       visualScore = Math.max(0, Math.min(100, visualScore))
 
       const hasVisual = detection && !detection.degraded
@@ -569,6 +576,14 @@ export default function ResultsPage() {
       setProvenance(provenance)
 
       setDegradedComponents(degraded)
+
+      await saveScan({
+        fileName: file.name,
+        fileType: "video",
+        score: combined,
+        durationMs: Date.now() - pipelineStart,
+      })
+
       setPipelineStep("done")
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Pipeline failed")
@@ -639,19 +654,29 @@ export default function ResultsPage() {
       let noiseS = forensicResult && !forensicResult.degraded ? forensicResult.noiseScore : 0
       if (Number.isNaN(elaS)) elaS = 0
       if (Number.isNaN(noiseS)) noiseS = 0
-      const visualScore = forensicResult && !forensicResult.degraded
-        ? Math.max(0, Math.min(100, rawVisualScore * 0.85 + elaS * 0.10 + noiseS * 0.05))
+      let visualScore = forensicResult && !forensicResult.degraded
+        ? rawVisualScore * 0.85 + elaS * 0.10 + noiseS * 0.05
         : rawVisualScore
+      if (frameExplanations && !frameExplanations.degraded && frameExplanations.frames.length > 0) {
+        visualScore += computeFrameExplanationModifier(frameExplanations)
+      }
+      visualScore = Math.max(0, Math.min(100, visualScore))
       const hasVisual = frameDetection && !frameDetection.degraded
       const weights = hasVisual && contentProfile
         ? contentProfile.weights
         : hasVisual
-          ? { visual: 0.6, text: 0.4 }
+          ? { visual: 0.7, text: 0.3 }
           : { visual: 0, text: 1 }
       const combined = Math.max(0, Math.min(100,
         Math.round(visualScore * weights.visual + analysis.overallScore * weights.text)
       ))
       setCombinedScore(combined)
+
+      await saveScan({
+        fileName: uploadedFile.name,
+        fileType: "video",
+        score: combined,
+      })
 
       setPipelineStep("done")
     } catch (err) {
@@ -667,7 +692,7 @@ export default function ResultsPage() {
     setAnalysisMode(newMode)
 
     if (newMode === "fast" && frameExplanationCacheRef.current) {
-      // Deep→Fast: filter cached results to 4 frames
+      // Deep→Fast: filter cached deep results to 4 frames
       const cached = frameExplanationCacheRef.current
       const filtered: FrameExplanationResult = {
         ...cached,
@@ -895,11 +920,11 @@ export default function ResultsPage() {
               <ScoreGauge score={displayScore} />
               {contentProfile && (
                 <span className="rounded-md bg-secondary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  {contentProfile.type === "face-heavy" ? "Face-heavy (70/30)"
-                    : contentProfile.type === "speech-heavy" ? "Speech-heavy (40/60)"
+                  {contentProfile.type === "face-heavy" ? "Face-heavy (85/15)"
+                    : contentProfile.type === "speech-heavy" ? "Speech-heavy (55/45)"
                     : contentProfile.type === "visual-only" ? "Visual-only (100/0)"
                     : contentProfile.type === "text-only" ? "Text-only (0/100)"
-                    : "Balanced (60/40)"}
+                    : "Balanced (70/30)"}
                 </span>
               )}
             </div>

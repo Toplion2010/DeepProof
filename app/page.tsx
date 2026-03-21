@@ -2,7 +2,6 @@ import { DeepProofHeader } from "@/components/deepproof-header"
 import { UploadZone } from "@/components/upload-zone"
 import { StatsPanel } from "@/components/stats-panel"
 import { RecentScans } from "@/components/recent-scans"
-import { ThreatFeed } from "@/components/threat-feed"
 
 export default function Page() {
   return (
@@ -26,11 +25,8 @@ export default function Page() {
           <UploadZone />
         </section>
 
-        {/* Bottom Grid */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <RecentScans />
-          <ThreatFeed />
-        </div>
+        {/* Recent Scans */}
+        <RecentScans />
 
         {/* Footer */}
         <footer className="border-t border-border pt-6 pb-4">

@@ -12,7 +12,7 @@ export function computeContentProfile(
   hasFrames: boolean
 ): ContentProfile {
   if (!hasFrames && !hasAudio) {
-    return { type: "balanced", weights: { visual: 0.6, text: 0.4 }, reason: "No frames or audio available" }
+    return { type: "balanced", weights: { visual: 0.7, text: 0.3 }, reason: "No frames or audio available" }
   }
 
   if (!hasAudio || transcriptLength === undefined) {
@@ -26,12 +26,12 @@ export function computeContentProfile(
   const faceRatio = framesAnalyzed > 0 ? facesDetected / framesAnalyzed : 0
 
   if (faceRatio > 0.6 && transcriptLength < 200) {
-    return { type: "face-heavy", weights: { visual: 0.7, text: 0.3 }, reason: "High face presence with minimal speech" }
+    return { type: "face-heavy", weights: { visual: 0.85, text: 0.15 }, reason: "High face presence with minimal speech" }
   }
 
   if (faceRatio < 0.3 && transcriptLength > 500) {
-    return { type: "speech-heavy", weights: { visual: 0.4, text: 0.6 }, reason: "Low face presence with extensive speech" }
+    return { type: "speech-heavy", weights: { visual: 0.55, text: 0.45 }, reason: "Low face presence with extensive speech" }
   }
 
-  return { type: "balanced", weights: { visual: 0.6, text: 0.4 }, reason: "Balanced visual and audio content" }
+  return { type: "balanced", weights: { visual: 0.7, text: 0.3 }, reason: "Balanced visual and audio content" }
 }
