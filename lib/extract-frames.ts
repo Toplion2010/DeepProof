@@ -5,6 +5,24 @@ export interface ExtractedFrames {
   totalPayloadKB: number
 }
 
+/** Wait for a seek to complete and the frame to be decoded (iOS Safari compat) */
+async function seekAndWait(video: HTMLVideoElement, time: number): Promise<void> {
+  video.currentTime = time
+  await new Promise<void>((resolve) => {
+    video.onseeked = () => resolve()
+  })
+  // iOS Safari: onseeked fires before frame is decoded — wait for readyState
+  if (video.readyState < 2) {
+    await new Promise<void>((resolve) => {
+      const check = () => {
+        if (video.readyState >= 2) resolve()
+        else requestAnimationFrame(check)
+      }
+      check()
+    })
+  }
+}
+
 export async function extractFrames(
   videoUrl: string,
   maxWidth = 768,
@@ -13,6 +31,7 @@ export async function extractFrames(
   const video = document.createElement("video")
   video.preload = "auto"
   video.muted = true
+  video.playsInline = true
   video.crossOrigin = "anonymous"
 
   await new Promise<void>((resolve, reject) => {
@@ -66,10 +85,7 @@ async function captureFrames(
 ): Promise<string[]> {
   const frames: string[] = []
   for (const time of timestamps) {
-    video.currentTime = time
-    await new Promise<void>((resolve) => {
-      video.onseeked = () => resolve()
-    })
+    await seekAndWait(video, time)
     ctx.drawImage(video, 0, 0, width, height)
     const dataUrl = canvas.toDataURL("image/jpeg", quality)
     frames.push(dataUrl.split(",")[1])
@@ -107,6 +123,7 @@ export async function extractSequenceWindow(
   const video = document.createElement("video")
   video.preload = "auto"
   video.muted = true
+  video.playsInline = true
   video.crossOrigin = "anonymous"
 
   // Wait for metadata to ensure valid dimensions and duration
@@ -154,10 +171,7 @@ export async function extractSequenceWindow(
   const frames: string[] = []
   for (const time of timestamps) {
     try {
-      video.currentTime = time
-      await new Promise<void>((resolve) => {
-        video.onseeked = () => resolve()
-      })
+      await seekAndWait(video, time)
       ctx.drawImage(video, 0, 0, width, height)
       const dataUrl = canvas.toDataURL("image/jpeg", 0.7)
       frames.push(dataUrl.split(",")[1])

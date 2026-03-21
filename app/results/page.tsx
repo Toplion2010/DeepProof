@@ -112,6 +112,7 @@ export default function ResultsPage() {
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null)
   const [provenance, setProvenance] = useState<ProvenanceRecord | null>(null)
   const [errorMsg, setErrorMsg] = useState("")
+  const [sessionExpired, setSessionExpired] = useState(false)
   const [contentProfile, setContentProfile] = useState<ContentProfile | null>(null)
   const [forensicResult, setForensicResult] = useState<ForensicResult | null>(null)
   const [temporalResult, setTemporalResult] = useState<TemporalAnalysisResult | null>(null)
@@ -134,7 +135,7 @@ export default function ResultsPage() {
 
     const file = getUploadedFile()
     if (!file) {
-      router.replace("/")
+      setSessionExpired(true)
       return
     }
 
@@ -765,6 +766,28 @@ export default function ResultsPage() {
   const isPipelineRunning = pipelineStep !== "done" && pipelineStep !== "error"
   const displayScore = combinedScore ?? aiAnalysis?.overallScore ?? 0
 
+  if (sessionExpired) {
+    return (
+      <div className="flex min-h-screen flex-col bg-background">
+        <DeepProofHeader />
+        <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col items-center justify-center gap-4 px-6 py-8">
+          <AlertTriangle className="h-12 w-12 text-yellow-500" />
+          <h2 className="text-xl font-semibold text-foreground">Session Expired</h2>
+          <p className="text-sm text-muted-foreground text-center max-w-md">
+            Your uploaded video is no longer available. This can happen if the browser tab was refreshed or backgrounded. Please re-upload your video to run the analysis again.
+          </p>
+          <Link
+            href="/"
+            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Upload
+          </Link>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <DeepProofHeader />
@@ -859,6 +882,7 @@ export default function ResultsPage() {
                   ref={videoRef}
                   src={uploadedFile.objectUrl}
                   controls
+                  playsInline
                   className="w-full aspect-video bg-black"
                   preload="metadata"
                 />
