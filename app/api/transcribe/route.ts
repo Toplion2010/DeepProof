@@ -10,8 +10,8 @@ import { randomUUID } from "crypto"
 const execFileAsync = promisify(execFile)
 const GAP_THRESHOLD_S = 2.0
 
-/** Extract audio from video as mp3 using ffmpeg, returns the audio buffer. */
-async function extractAudio(videoBuffer: Buffer): Promise<{ buffer: Buffer; path: string }> {
+/** Try extracting audio via ffmpeg. Returns null if ffmpeg is not available. */
+async function tryExtractAudio(videoBuffer: Buffer): Promise<{ buffer: Buffer; path: string } | null> {
   const id = randomUUID()
   const videoPath = join(tmpdir(), `dp-video-${id}.mp4`)
   const audioPath = join(tmpdir(), `dp-audio-${id}.mp3`)
@@ -20,17 +20,24 @@ async function extractAudio(videoBuffer: Buffer): Promise<{ buffer: Buffer; path
   try {
     await execFileAsync("ffmpeg", [
       "-i", videoPath,
-      "-vn",              // no video
-      "-ac", "1",         // mono
-      "-ar", "16000",     // 16kHz (Whisper native)
-      "-b:a", "48k",      // low bitrate — keeps file small
+      "-vn",
+      "-ac", "1",
+      "-ar", "16000",
+      "-b:a", "48k",
       "-f", "mp3",
-      "-y",               // overwrite
+      "-y",
       audioPath,
     ], { timeout: 60_000 })
 
     const buffer = await readFile(audioPath)
     return { buffer, path: audioPath }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes("ENOENT")) {
+      // ffmpeg not installed (e.g. Vercel serverless) — fall back to raw file
+      return null
+    }
+    throw err
   } finally {
     await unlink(videoPath).catch(() => {})
   }
@@ -54,15 +61,21 @@ export async function POST(request: Request) {
       )
     }
 
-    // Extract audio track only — much smaller than the full video
+    // Try extracting audio with ffmpeg (smaller file for Groq)
+    // Falls back to sending raw video if ffmpeg is unavailable (e.g. Vercel)
     const videoBuffer = Buffer.from(await file.arrayBuffer())
-    const audio = await extractAudio(videoBuffer)
-    audioPath = audio.path
+    const audio = await tryExtractAudio(videoBuffer)
 
-    const audioFile = new File([audio.buffer], "audio.mp3", { type: "audio/mpeg" })
+    let fileToSend: File
+    if (audio) {
+      audioPath = audio.path
+      fileToSend = new File([audio.buffer], "audio.mp3", { type: "audio/mpeg" })
+    } else {
+      fileToSend = new File([videoBuffer], file.name || "video.mp4", { type: file.type || "video/mp4" })
+    }
 
     const transcription = await groq.audio.transcriptions.create({
-      file: audioFile,
+      file: fileToSend,
       model: "whisper-large-v3-turbo",
       response_format: "verbose_json",
     })
@@ -82,7 +95,6 @@ export async function POST(request: Request) {
       const secs = Math.floor(seg.start % 60)
       const timestamp = `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`
 
-      // Switch speaker on gaps > threshold
       if (i > 0) {
         const prevEnd = rawSegments[i - 1].end
         const gap = seg.start - prevEnd
@@ -135,7 +147,6 @@ export async function POST(request: Request) {
       message.includes("does not contain any stream")
 
     if (isNoAudio) {
-      // Return empty transcription instead of error for silent/no-audio videos
       return NextResponse.json({
         language: "unknown",
         segments: [],

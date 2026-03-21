@@ -109,7 +109,7 @@ export function DeepProofHeader() {
           </div>
           <div className="hidden items-center gap-2 rounded-md bg-secondary px-3 py-1.5 font-mono text-xs text-muted-foreground sm:flex">
             <Wifi className="h-3 w-3 text-primary" />
-            <span>{time || "--:--:--"}</span>
+            <span suppressHydrationWarning>{time || "--:--:--"}</span>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
