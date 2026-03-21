@@ -11,12 +11,15 @@ async function seekAndWait(video: HTMLVideoElement, time: number): Promise<void>
   await new Promise<void>((resolve) => {
     video.onseeked = () => resolve()
   })
-  // iOS Safari: onseeked fires before frame is decoded — wait for readyState
+  // iOS Safari: onseeked fires before frame is decoded — wait for readyState.
+  // Use setTimeout (not rAF — rAF doesn't fire for offscreen video on iOS).
+  // Bail after 2s to avoid hanging forever.
   if (video.readyState < 2) {
     await new Promise<void>((resolve) => {
+      const start = Date.now()
       const check = () => {
-        if (video.readyState >= 2) resolve()
-        else requestAnimationFrame(check)
+        if (video.readyState >= 2 || Date.now() - start > 2000) resolve()
+        else setTimeout(check, 30)
       }
       check()
     })
@@ -32,7 +35,7 @@ export async function extractFrames(
   video.preload = "auto"
   video.muted = true
   video.playsInline = true
-  video.crossOrigin = "anonymous"
+  if (!videoUrl.startsWith("blob:")) video.crossOrigin = "anonymous"
 
   await new Promise<void>((resolve, reject) => {
     video.onloadeddata = () => resolve()
@@ -124,7 +127,7 @@ export async function extractSequenceWindow(
   video.preload = "auto"
   video.muted = true
   video.playsInline = true
-  video.crossOrigin = "anonymous"
+  if (!videoUrl.startsWith("blob:")) video.crossOrigin = "anonymous"
 
   // Wait for metadata to ensure valid dimensions and duration
   await new Promise<void>((resolve, reject) => {
