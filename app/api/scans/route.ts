@@ -2,10 +2,11 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 
 export async function GET(request: Request) {
+  const supabase = await createClient()
+  if (!supabase) return NextResponse.json({ scans: [] })
+
   const { searchParams } = new URL(request.url)
   const limit = Math.min(Number(searchParams.get("limit") ?? 10), 50)
-
-  const supabase = await createClient()
 
   const { data, error } = await supabase
     .from("scans")
@@ -23,8 +24,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const supabase = await createClient()
-  const body = await request.json()
+  if (!supabase) return NextResponse.json({ scan: null })
 
+  const body = await request.json()
   const { fileName, fileType, score, durationMs } = body
   if (typeof fileName !== "string" || typeof score !== "number") {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 })
@@ -32,7 +34,6 @@ export async function POST(request: Request) {
 
   const status = score <= 30 ? "authentic" : score <= 60 ? "inconclusive" : "deepfake"
 
-  // Get user if logged in, but don't require it
   const { data: { user } } = await supabase.auth.getUser()
 
   const { data, error } = await supabase

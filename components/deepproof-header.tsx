@@ -51,6 +51,7 @@ export function DeepProofHeader() {
 
   useEffect(() => {
     const supabase = createClient()
+    if (!supabase) return
     supabase.auth.getUser().then(({ data: { user } }) => setUser(user))
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (_event, session) => setUser(session?.user ?? null)
@@ -60,6 +61,7 @@ export function DeepProofHeader() {
 
   async function handleSignOut() {
     const supabase = createClient()
+    if (!supabase) return
     await supabase.auth.signOut()
     router.push("/auth/login")
     router.refresh()
