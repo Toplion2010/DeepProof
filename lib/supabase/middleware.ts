@@ -33,12 +33,18 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const isAuthRoute = request.nextUrl.pathname.startsWith('/auth')
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api')
 
-  // Redirect unauthenticated users to login (except auth pages themselves)
-  if (!user && !isAuthRoute) {
+  // Redirect unauthenticated users to login (except auth pages and API routes)
+  // API routes return 401 JSON instead of redirecting to avoid HTML-as-JSON errors
+  if (!user && !isAuthRoute && !isApiRoute) {
     const loginUrl = request.nextUrl.clone()
     loginUrl.pathname = '/auth/login'
     return NextResponse.redirect(loginUrl)
+  }
+
+  if (!user && isApiRoute) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   // Redirect authenticated users away from login/signup to dashboard

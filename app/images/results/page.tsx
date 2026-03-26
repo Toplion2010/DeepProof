@@ -19,6 +19,7 @@ import {
   computeImageMetadataSignals,
   type ImageFinding,
   type ImagePipelineStep,
+  type FindingRegion,
 } from "@/lib/image-analysis"
 import { saveScan } from "@/lib/scans"
 
@@ -30,6 +31,39 @@ interface ImageAnalysisResult {
   explanation: string
   findings: ImageFinding[]
   degradedReasons?: string[]
+}
+
+/**
+ * Crop a region from an image and return base64 JPEG
+ */
+async function cropEvidenceRegion(
+  imageBase64: string,
+  region: FindingRegion,
+  imgWidth: number,
+  imgHeight: number,
+  maxSize = 300,
+): Promise<string> {
+  const canvas = document.createElement("canvas")
+  const ctx = canvas.getContext("2d")!
+
+  const img = new Image()
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve()
+    img.onerror = reject
+    img.src = `data:image/jpeg;base64,${imageBase64}`
+  })
+
+  const sx = Math.round(region.x * imgWidth)
+  const sy = Math.round(region.y * imgHeight)
+  const sw = Math.round(region.w * imgWidth)
+  const sh = Math.round(region.h * imgHeight)
+
+  const scale = Math.min(1, maxSize / Math.max(sw, sh))
+  canvas.width = Math.round(sw * scale)
+  canvas.height = Math.round(sh * scale)
+
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1]
 }
 
 const STEP_LABELS: Record<ImagePipelineStep, string> = {
@@ -107,13 +141,31 @@ export default function ImageResultsPage() {
 
         if (!mounted) return
 
+        // Crop evidence regions for findings that have bounding boxes
+        const findings: ImageFinding[] = apiResult.findings || []
+        for (const finding of findings) {
+          if (finding.region && extracted.imageBase64) {
+            try {
+              finding.evidenceCropBase64 = await cropEvidenceRegion(
+                extracted.imageBase64,
+                finding.region,
+                extracted.width,
+                extracted.height,
+              )
+              finding.evidenceLabel = "AI-detected region"
+            } catch {
+              // Crop failed, skip
+            }
+          }
+        }
+
         setResult({
           finalFraudScore: apiResult.finalFraudScore ?? 50,
           visionScore: apiResult.visionScore ?? 0,
           metadataScore: apiResult.metadataScore ?? metadataSignals.metadataScore,
           confidenceScore: apiResult.confidenceScore ?? 20,
           explanation: apiResult.explanation || "",
-          findings: apiResult.findings || [],
+          findings,
           degradedReasons: apiResult.degradedReasons || [],
         })
 

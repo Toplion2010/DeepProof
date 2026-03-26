@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { ChevronDown, ChevronUp, ImageIcon, Zap, Brain, AlertTriangle } from "lucide-react"
 import type { FrameExplanationResult, FrameAnomaly, AnalysisMode } from "@/lib/frame-explanation"
+import type { RegionAnalysisResult } from "@/lib/region-analysis"
+import { RegionOverlay } from "./region-overlay"
 
 interface FrameExplanationSectionProps {
   result: FrameExplanationResult | null
@@ -10,6 +12,7 @@ interface FrameExplanationSectionProps {
   loading: boolean
   onModeChange: (mode: AnalysisMode) => void
   currentMode: AnalysisMode
+  regionAnalysis?: RegionAnalysisResult
 }
 
 function getSeverityColor(severity: number) {
@@ -42,6 +45,7 @@ export function FrameExplanationSection({
   loading,
   onModeChange,
   currentMode,
+  regionAnalysis,
 }: FrameExplanationSectionProps) {
   if (!loading && !result) return null
 
@@ -114,6 +118,7 @@ export function FrameExplanationSection({
                   key={explanation.frameIndex}
                   explanation={explanation}
                   base64={frameBase64}
+                  regionAnalysis={regionAnalysis}
                 />
               )
             })}
@@ -141,9 +146,11 @@ export function FrameExplanationSection({
 function FrameCard({
   explanation,
   base64,
+  regionAnalysis,
 }: {
   explanation: FrameExplanationResult["frames"][number]
   base64?: string
+  regionAnalysis?: RegionAnalysisResult
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -152,10 +159,15 @@ function FrameCard({
     : 0
 
   return (
-    <div className="rounded-lg border border-border bg-secondary/20 overflow-hidden">
+    <div id={`frame-explanation-${explanation.frameIndex}`} className="rounded-lg border border-border bg-secondary/20 overflow-hidden transition-all">
       {/* Thumbnail */}
       <div className="relative aspect-video bg-secondary">
-        {base64 ? (
+        {base64 && regionAnalysis && regionAnalysis.regions.length > 0 ? (
+          <RegionOverlay
+            imageSrc={`data:image/jpeg;base64,${base64}`}
+            regions={regionAnalysis.regions}
+          />
+        ) : base64 ? (
           <img
             src={`data:image/jpeg;base64,${base64}`}
             alt={`Frame ${explanation.frameIndex}`}

@@ -5,6 +5,8 @@
 
 import { createForensicWorker } from "./forensic-worker-inline"
 
+import type { RegionGridCell, ELAResult, NoiseResult, EdgeResult } from "./forensic-algorithms"
+
 export interface ForensicResult {
   elaScore: number
   elaFindings: string[]
@@ -12,6 +14,12 @@ export interface ForensicResult {
   noiseFindings: string[]
   framesAnalyzed: number
   degraded: boolean
+  // Per-frame region grid data for region proposal engine
+  elaPerFrame?: ELAResult[]
+  noisePerFrame?: NoiseResult[]
+  edgePerFrame?: EdgeResult[]
+  analysisWidth?: number
+  analysisHeight?: number
 }
 
 const FORENSIC_TIMEOUT_MS = 20_000
@@ -84,7 +92,7 @@ function isValidBase64Image(frame: string): boolean {
   return /^[A-Za-z0-9+/]/.test(frame)
 }
 
-function sendToWorker(type: "ela" | "noise" | "temporal", frames: string[]): Promise<Record<string, unknown>> {
+function sendToWorker(type: "ela" | "noise" | "temporal" | "edge", frames: string[]): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const id = messageId++
     const w = getWorker()
@@ -229,10 +237,29 @@ async function runWorkerAnalysis(
     ? Math.max(0, Math.min(100, noiseResult.noiseScore as number))
     : 0
 
+  // Run edge analysis
+  onProgress?.("Running edge intensity analysis...")
+  const edgeResult = await enqueueWorkerTask(() => sendToWorker("edge", frames))
+
   const framesAnalyzed = Math.max(
     typeof elaResult.framesAnalyzed === "number" ? elaResult.framesAnalyzed as number : 0,
     typeof noiseResult.framesAnalyzed === "number" ? noiseResult.framesAnalyzed as number : 0
   )
+
+  // Extract per-frame region grid data
+  const elaPerFrame = Array.isArray(elaResult.perFrameResults)
+    ? (elaResult.perFrameResults as ELAResult[])
+    : undefined
+  const noisePerFrame = Array.isArray(noiseResult.perFrameResults)
+    ? (noiseResult.perFrameResults as NoiseResult[])
+    : undefined
+  const edgePerFrame = Array.isArray(edgeResult.perFrameResults)
+    ? (edgeResult.perFrameResults as EdgeResult[])
+    : undefined
+
+  // Use analysis dimensions from first ELA frame that has them
+  const analysisWidth = elaPerFrame?.[0]?.analysisWidth
+  const analysisHeight = elaPerFrame?.[0]?.analysisHeight
 
   return {
     elaScore,
@@ -241,5 +268,10 @@ async function runWorkerAnalysis(
     noiseFindings: generateNoiseFindings(noiseScore),
     framesAnalyzed,
     degraded: false,
+    elaPerFrame,
+    noisePerFrame,
+    edgePerFrame,
+    analysisWidth,
+    analysisHeight,
   }
 }

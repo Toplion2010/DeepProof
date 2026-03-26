@@ -41,6 +41,7 @@ function computeELA(original, recompressed, width, height, regionSize) {
   var regionsX = Math.ceil(width / regionSize);
   var regionsY = Math.ceil(height / regionSize);
   var maxRegionalDeviation = 0;
+  var regionGrid = [];
   for (var ry = 0; ry < regionsY; ry++) {
     for (var rx = 0; rx < regionsX; rx++) {
       var regionSum = 0;
@@ -61,11 +62,12 @@ function computeELA(original, recompressed, width, height, regionSize) {
         if (deviation > maxRegionalDeviation) {
           maxRegionalDeviation = deviation;
         }
+        regionGrid.push({ rx: rx, ry: ry, startX: startX, startY: startY, endX: endX, endY: endY, value: regionAvg, deviation: deviation });
       }
     }
   }
   var score = Math.max(0, Math.min(100, maxRegionalDeviation * 25));
-  return { score: score, maxRegionalDeviation: maxRegionalDeviation, meanDeviation: meanDeviation };
+  return { score: score, maxRegionalDeviation: maxRegionalDeviation, meanDeviation: meanDeviation, regionGrid: regionGrid, analysisWidth: width, analysisHeight: height };
 }
 
 function computeNoiseVariance(pixels, width, height, regionSize) {
@@ -94,6 +96,7 @@ function computeNoiseVariance(pixels, width, height, regionSize) {
   var regionsX = Math.ceil(lw / regionSize);
   var regionsY = Math.ceil(lh / regionSize);
   var regionVariances = [];
+  var regionGridCells = [];
   for (var ry = 0; ry < regionsY; ry++) {
     for (var rx = 0; rx < regionsX; rx++) {
       var startX = rx * regionSize;
@@ -114,7 +117,9 @@ function computeNoiseVariance(pixels, width, height, regionSize) {
       if (count > 1) {
         var mean = sum / count;
         var variance = sumSq / count - mean * mean;
-        regionVariances.push(Math.max(0, variance));
+        var v = Math.max(0, variance);
+        regionVariances.push(v);
+        regionGridCells.push({ rx: rx, ry: ry, startX: startX, startY: startY, endX: endX, endY: endY, variance: v });
       }
     }
   }
@@ -123,9 +128,12 @@ function computeNoiseVariance(pixels, width, height, regionSize) {
   }
   var meanVar = regionVariances.reduce(function (a, b) { return a + b; }, 0) / regionVariances.length;
   var varOfVar = regionVariances.reduce(function (a, v) { return a + Math.pow(v - meanVar, 2); }, 0) / regionVariances.length;
+  var regionGrid = regionGridCells.map(function (c) {
+    return { rx: c.rx, ry: c.ry, startX: c.startX, startY: c.startY, endX: c.endX, endY: c.endY, value: c.variance, deviation: meanVar > 0.0001 ? (c.variance - meanVar) / meanVar : 0 };
+  });
   var normalizedVoV = Math.max(0, Math.min(1, 1 - varOfVar / 500));
   var score = Math.max(0, Math.min(100, normalizedVoV * 100));
-  return { score: score, varianceOfVariance: varOfVar };
+  return { score: score, varianceOfVariance: varOfVar, regionGrid: regionGrid, analysisWidth: width, analysisHeight: height };
 }
 
 function computeTemporalDiff(frames, width, height) {
@@ -165,6 +173,63 @@ function computeTemporalDiff(frames, width, height) {
   return { diffScores: diffScores, cv: cv, anomalyIndices: anomalyIndices, consistencyScore: consistencyScore };
 }
 
+function computeEdgeIntensity(pixels, width, height, regionSize) {
+  if (regionSize === undefined) regionSize = 16;
+  var empty = { regionGrid: [], analysisWidth: width, analysisHeight: height };
+  if (pixels.length === 0 || width < 3 || height < 3) return empty;
+  var gray = new Float32Array(width * height);
+  for (var i = 0; i < width * height; i++) {
+    var idx = i * 4;
+    gray[i] = 0.299 * pixels[idx] + 0.587 * pixels[idx + 1] + 0.114 * pixels[idx + 2];
+  }
+  var ew = width - 2;
+  var eh = height - 2;
+  var edgeMag = new Float32Array(ew * eh);
+  for (var y = 1; y < height - 1; y++) {
+    for (var x = 1; x < width - 1; x++) {
+      var tl = gray[(y - 1) * width + (x - 1)];
+      var tc = gray[(y - 1) * width + x];
+      var tr = gray[(y - 1) * width + (x + 1)];
+      var ml = gray[y * width + (x - 1)];
+      var mr = gray[y * width + (x + 1)];
+      var bl = gray[(y + 1) * width + (x - 1)];
+      var bc = gray[(y + 1) * width + x];
+      var br = gray[(y + 1) * width + (x + 1)];
+      var gx = -tl + tr - 2 * ml + 2 * mr - bl + br;
+      var gy = -tl - 2 * tc - tr + bl + 2 * bc + br;
+      edgeMag[(y - 1) * ew + (x - 1)] = Math.sqrt(gx * gx + gy * gy);
+    }
+  }
+  var regionsX = Math.ceil(ew / regionSize);
+  var regionsY = Math.ceil(eh / regionSize);
+  var cells = [];
+  for (var ry = 0; ry < regionsY; ry++) {
+    for (var rx = 0; rx < regionsX; rx++) {
+      var startX = rx * regionSize;
+      var startY = ry * regionSize;
+      var endX = Math.min(startX + regionSize, ew);
+      var endY = Math.min(startY + regionSize, eh);
+      var sum = 0;
+      var count = 0;
+      for (var y = startY; y < endY; y++) {
+        for (var x = startX; x < endX; x++) {
+          sum += edgeMag[y * ew + x];
+          count++;
+        }
+      }
+      if (count > 0) {
+        cells.push({ rx: rx, ry: ry, startX: startX, startY: startY, endX: endX, endY: endY, mag: sum / count });
+      }
+    }
+  }
+  if (cells.length === 0) return empty;
+  var meanMag = cells.reduce(function (a, c) { return a + c.mag; }, 0) / cells.length;
+  var regionGrid = cells.map(function (c) {
+    return { rx: c.rx, ry: c.ry, startX: c.startX, startY: c.startY, endX: c.endX, endY: c.endY, value: c.mag, deviation: meanMag > 0.0001 ? (c.mag - meanMag) / meanMag : 0 };
+  });
+  return { regionGrid: regionGrid, analysisWidth: width, analysisHeight: height };
+}
+
 // ── Worker message handler ──────────────────────────────────────────
 
 var hasOffscreenCanvas = typeof OffscreenCanvas !== "undefined";
@@ -182,7 +247,7 @@ self.onmessage = async function (e) {
     return;
   }
 
-  if (type !== "ela" && type !== "noise" && type !== "temporal") {
+  if (type !== "ela" && type !== "noise" && type !== "temporal" && type !== "edge") {
     return;
   }
 
@@ -199,6 +264,8 @@ self.onmessage = async function (e) {
       await handleNoise(id, frames);
     } else if (type === "temporal") {
       await handleTemporal(id, frames);
+    } else if (type === "edge") {
+      await handleEdge(id, frames);
     }
   } catch (err) {
     self.postMessage({
@@ -336,6 +403,26 @@ async function handleTemporal(id, frames) {
     anomalyIndices: result.anomalyIndices,
     framesAnalyzed: pixelArrays.length,
     diffScores: result.diffScores,
+  });
+}
+
+async function handleEdge(id, frames) {
+  var results = [];
+  for (var i = 0; i < frames.length; i++) {
+    var bitmap = await loadImage(frames[i]);
+    if (!bitmap || bitmap.width < 200) {
+      if (bitmap) bitmap.close();
+      continue;
+    }
+    var px = getPixels(bitmap, 320);
+    bitmap.close();
+    results.push(computeEdgeIntensity(px.pixels, px.width, px.height));
+  }
+  self.postMessage({
+    id: id,
+    type: "edge",
+    framesAnalyzed: results.length,
+    perFrameResults: results,
   });
 }
 `;

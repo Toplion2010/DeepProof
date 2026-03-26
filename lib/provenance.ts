@@ -13,6 +13,7 @@ export interface ProvenanceRecord {
   forensicDurationMs: number
   temporalDurationMs: number
   frameExplanationDurationMs: number
+  regionAnalysisDurationMs: number
   frameExplanationMode: string | null
   scoreWeights: { visual: number; text: number } | null
   contentProfile: string | null
@@ -34,6 +35,7 @@ export function createProvenance(): ProvenanceRecord {
     forensicDurationMs: 0,
     temporalDurationMs: 0,
     frameExplanationDurationMs: 0,
+    regionAnalysisDurationMs: 0,
     frameExplanationMode: null,
     scoreWeights: null,
     contentProfile: null,
@@ -52,7 +54,7 @@ export function addModel(provenance: ProvenanceRecord, modelId: string): void {
 
 export function recordDuration(
   provenance: ProvenanceRecord,
-  field: "pipelineDurationMs" | "visionDurationMs" | "searchDurationMs" | "analysisDurationMs" | "forensicDurationMs" | "temporalDurationMs" | "frameExplanationDurationMs",
+  field: "pipelineDurationMs" | "visionDurationMs" | "searchDurationMs" | "analysisDurationMs" | "forensicDurationMs" | "temporalDurationMs" | "frameExplanationDurationMs" | "regionAnalysisDurationMs",
   ms: number
 ): void {
   provenance[field] = ms

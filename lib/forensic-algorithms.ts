@@ -4,15 +4,38 @@
  * and can be imported by both the Web Worker and tests.
  */
 
+export interface RegionGridCell {
+  rx: number
+  ry: number
+  startX: number
+  startY: number
+  endX: number
+  endY: number
+  value: number      // avgDiff for ELA, variance for noise, magnitude for edge
+  deviation: number  // deviation from mean
+}
+
 export interface ELAResult {
   score: number // 0-100, higher = more suspicious
   maxRegionalDeviation: number
   meanDeviation: number
+  regionGrid?: RegionGridCell[]
+  analysisWidth?: number
+  analysisHeight?: number
 }
 
 export interface NoiseResult {
   score: number // 0-100, higher = more suspicious (uniform noise = GAN)
   varianceOfVariance: number
+  regionGrid?: RegionGridCell[]
+  analysisWidth?: number
+  analysisHeight?: number
+}
+
+export interface EdgeResult {
+  regionGrid: RegionGridCell[]
+  analysisWidth: number
+  analysisHeight: number
 }
 
 export interface TemporalDiffResult {
@@ -69,6 +92,7 @@ export function computeELA(
   const regionsX = Math.ceil(width / regionSize)
   const regionsY = Math.ceil(height / regionSize)
   let maxRegionalDeviation = 0
+  const regionGrid: RegionGridCell[] = []
 
   for (let ry = 0; ry < regionsY; ry++) {
     for (let rx = 0; rx < regionsX; rx++) {
@@ -92,6 +116,7 @@ export function computeELA(
         if (deviation > maxRegionalDeviation) {
           maxRegionalDeviation = deviation
         }
+        regionGrid.push({ rx, ry, startX, startY, endX, endY, value: regionAvg, deviation })
       }
     }
   }
@@ -99,7 +124,7 @@ export function computeELA(
   // Normalize to 0-100: deviation of 2x mean → score ~65, 4x → ~100
   const score = Math.max(0, Math.min(100, maxRegionalDeviation * 25))
 
-  return { score, maxRegionalDeviation, meanDeviation }
+  return { score, maxRegionalDeviation, meanDeviation, regionGrid, analysisWidth: width, analysisHeight: height }
 }
 
 /**
@@ -149,6 +174,7 @@ export function computeNoiseVariance(
   const regionsX = Math.ceil(lw / regionSize)
   const regionsY = Math.ceil(lh / regionSize)
   const regionVariances: number[] = []
+  const regionGridCells: Array<{ rx: number; ry: number; startX: number; startY: number; endX: number; endY: number; variance: number }> = []
 
   for (let ry = 0; ry < regionsY; ry++) {
     for (let rx = 0; rx < regionsX; rx++) {
@@ -173,7 +199,9 @@ export function computeNoiseVariance(
       if (count > 1) {
         const mean = sum / count
         const variance = sumSq / count - mean * mean
-        regionVariances.push(Math.max(0, variance))
+        const v = Math.max(0, variance)
+        regionVariances.push(v)
+        regionGridCells.push({ rx, ry, startX, startY, endX, endY, variance: v })
       }
     }
   }
@@ -186,13 +214,20 @@ export function computeNoiseVariance(
   const meanVar = regionVariances.reduce((a, b) => a + b, 0) / regionVariances.length
   const varOfVar = regionVariances.reduce((a, v) => a + (v - meanVar) ** 2, 0) / regionVariances.length
 
+  // Build regionGrid with deviation
+  const regionGrid: RegionGridCell[] = regionGridCells.map((c) => ({
+    rx: c.rx, ry: c.ry, startX: c.startX, startY: c.startY, endX: c.endX, endY: c.endY,
+    value: c.variance,
+    deviation: meanVar > 0.0001 ? (c.variance - meanVar) / meanVar : 0,
+  }))
+
   // Low variance-of-variance → uniform noise → suspicious (GAN)
   // Normalize: very uniform (varOfVar < 10) → score ~80-100
   // Natural variation (varOfVar > 500) → score ~0-20
   const normalizedVoV = Math.max(0, Math.min(1, 1 - varOfVar / 500))
   const score = Math.max(0, Math.min(100, normalizedVoV * 100))
 
-  return { score, varianceOfVariance: varOfVar }
+  return { score, varianceOfVariance: varOfVar, regionGrid, analysisWidth: width, analysisHeight: height }
 }
 
 /**
@@ -262,4 +297,85 @@ export function computeTemporalDiff(
   const consistencyScore = Math.max(0, Math.min(100, cv * 100))
 
   return { diffScores, cv, anomalyIndices, consistencyScore }
+}
+
+/**
+ * Edge intensity analysis using Sobel operator.
+ *
+ * Computes edge magnitude per grid cell. High edge intensity in
+ * localized regions may indicate splicing boundaries.
+ */
+export function computeEdgeIntensity(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  regionSize = 16
+): EdgeResult {
+  const empty: EdgeResult = { regionGrid: [], analysisWidth: width, analysisHeight: height }
+  if (pixels.length === 0 || width < 3 || height < 3) return empty
+
+  // Convert to grayscale
+  const gray = new Float32Array(width * height)
+  for (let i = 0; i < width * height; i++) {
+    const idx = i * 4
+    gray[i] = 0.299 * pixels[idx] + 0.587 * pixels[idx + 1] + 0.114 * pixels[idx + 2]
+  }
+
+  // Sobel edge magnitude
+  const ew = width - 2
+  const eh = height - 2
+  const edgeMag = new Float32Array(ew * eh)
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const tl = gray[(y - 1) * width + (x - 1)]
+      const tc = gray[(y - 1) * width + x]
+      const tr = gray[(y - 1) * width + (x + 1)]
+      const ml = gray[y * width + (x - 1)]
+      const mr = gray[y * width + (x + 1)]
+      const bl = gray[(y + 1) * width + (x - 1)]
+      const bc = gray[(y + 1) * width + x]
+      const br = gray[(y + 1) * width + (x + 1)]
+
+      const gx = -tl + tr - 2 * ml + 2 * mr - bl + br
+      const gy = -tl - 2 * tc - tr + bl + 2 * bc + br
+      edgeMag[(y - 1) * ew + (x - 1)] = Math.sqrt(gx * gx + gy * gy)
+    }
+  }
+
+  // Compute per-region average magnitude
+  const regionsX = Math.ceil(ew / regionSize)
+  const regionsY = Math.ceil(eh / regionSize)
+  const cells: Array<{ rx: number; ry: number; startX: number; startY: number; endX: number; endY: number; mag: number }> = []
+
+  for (let ry = 0; ry < regionsY; ry++) {
+    for (let rx = 0; rx < regionsX; rx++) {
+      const startX = rx * regionSize
+      const startY = ry * regionSize
+      const endX = Math.min(startX + regionSize, ew)
+      const endY = Math.min(startY + regionSize, eh)
+
+      let sum = 0
+      let count = 0
+      for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+          sum += edgeMag[y * ew + x]
+          count++
+        }
+      }
+      if (count > 0) {
+        cells.push({ rx, ry, startX, startY, endX, endY, mag: sum / count })
+      }
+    }
+  }
+
+  if (cells.length === 0) return empty
+
+  const meanMag = cells.reduce((a, c) => a + c.mag, 0) / cells.length
+  const regionGrid: RegionGridCell[] = cells.map((c) => ({
+    rx: c.rx, ry: c.ry, startX: c.startX, startY: c.startY, endX: c.endX, endY: c.endY,
+    value: c.mag,
+    deviation: meanMag > 0.0001 ? (c.mag - meanMag) / meanMag : 0,
+  }))
+
+  return { regionGrid, analysisWidth: width, analysisHeight: height }
 }

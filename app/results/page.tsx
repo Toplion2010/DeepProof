@@ -8,7 +8,7 @@ import { VideoAnalysisCard, AudioAnalysisCard } from "@/components/results/analy
 import { TranscriptSection } from "@/components/results/transcript-section"
 import { FactCheckSection } from "@/components/results/fact-check-section"
 import type { ClaimStatus } from "@/components/results/fact-check-section"
-import { ArrowLeft, Download, Share2, FileVideo, Info, HardDrive, Film, Clock, Ratio, Calendar, Loader2, Mic, Brain, Languages, CheckCircle2, AlertTriangle, RefreshCw, Eye, Calculator, Search, Sparkles, Shield, Waves, ImageIcon } from "lucide-react"
+import { ArrowLeft, Download, Share2, FileVideo, Info, HardDrive, Film, Clock, Ratio, Calendar, Loader2, Mic, Brain, Languages, CheckCircle2, AlertTriangle, RefreshCw, Eye, Calculator, Search, Sparkles, Shield, Waves, ImageIcon, Crosshair } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { getUploadedFileAsync, type UploadedFileInfo } from "@/lib/upload-store"
@@ -23,7 +23,13 @@ import { extractAudioFeatures } from "@/lib/audio-features"
 import { clusterSpeakersWithTimeout, type SpeakerClusterResult } from "@/lib/speaker-cluster"
 import { logMetrics, incrementMetric } from "@/lib/metrics"
 import { FrameExplanationSection } from "@/components/results/frame-explanation-section"
-import { computeFrameExplanationModifier, type FrameExplanationResult, type AnalysisMode } from "@/lib/frame-explanation"
+import { computeFrameExplanationModifier, computeForensicSummary, type FrameExplanationResult, type AnalysisMode, type ForensicSummary } from "@/lib/frame-explanation"
+import { ForensicSummarySection } from "@/components/results/forensic-summary-section"
+import { proposeRegionsForFrame, mergeRegionsAcrossFrames } from "@/lib/region-proposal"
+import { fuseRegionScores } from "@/lib/region-fusion"
+import { cropRegion } from "@/lib/region-crop"
+import type { RegionAnalysisResult, RegionAIAnalysis } from "@/lib/region-analysis"
+import type { RegionGridCell } from "@/lib/forensic-algorithms"
 import { selectFramesForExplanation, resizeFrameForExplanation, quickSimilarity } from "@/lib/frame-selection"
 import { saveScan } from "@/lib/scans"
 
@@ -70,6 +76,7 @@ type PipelineStep =
   | "transcribing"
   | "detecting-deepfakes"
   | "forensic-analysis"
+  | "region-analysis"
   | "temporal-analysis"
   | "analyzing-vision"
   | "searching-claims"
@@ -85,7 +92,8 @@ const STEP_LABELS: Record<PipelineStep, string> = {
   "extracting-frames": "Extracting frames & transcribing audio...",
   "transcribing": "Transcribing audio with Whisper AI...",
   "detecting-deepfakes": "Running deepfake detection on frames...",
-  "forensic-analysis": "Running forensic analysis (ELA + noise)...",
+  "forensic-analysis": "Running forensic analysis (ELA + noise + edge)...",
+  "region-analysis": "Detecting suspicious regions with AI...",
   "temporal-analysis": "Analyzing temporal consistency...",
   "analyzing-vision": "Vision AI analyzing frames & searching claims...",
   "searching-claims": "Searching web for claim verification...",
@@ -118,8 +126,10 @@ export default function ResultsPage() {
   const [temporalResult, setTemporalResult] = useState<TemporalAnalysisResult | null>(null)
   const [speakerResult, setSpeakerResult] = useState<SpeakerClusterResult | null>(null)
   const [frameExplanations, setFrameExplanations] = useState<FrameExplanationResult | null>(null)
+  const [regionAnalysis, setRegionAnalysis] = useState<RegionAnalysisResult | null>(null)
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>("deep")
   const [frameExplanationLoading, setFrameExplanationLoading] = useState(false)
+  const [forensicSummary, setForensicSummary] = useState<ForensicSummary | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const pipelineStarted = useRef(false)
   const isRetrying = useRef(false)
@@ -234,6 +244,129 @@ export default function ResultsPage() {
         degraded.push("frame-extraction")
       }
       recordStep(provenance, "detection")
+
+      // Step 3a-2: Region-based suspicious area detection
+      let regionResult: RegionAnalysisResult | null = null
+      if (forensic && forensic.elaPerFrame && forensic.elaPerFrame.length > 0 && detection) {
+        setPipelineStep("region-analysis")
+        setProgressDetail("Detecting suspicious regions...")
+        const regionStart = Date.now()
+
+        try {
+          // Select top 3 most suspicious frames by detection score
+          const frameScores = detection.perFrameScores ?? []
+          const sortedFrameIndices = frameScores
+            .map((s, i) => ({ score: s, index: i }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 3)
+            .map((f) => f.index)
+
+          // Propose regions for each frame
+          const frameProposals = sortedFrameIndices.map((frameIdx) => {
+            const elaData = forensic!.elaPerFrame?.[frameIdx]
+            const noiseData = forensic!.noisePerFrame?.[frameIdx]
+            const edgeData = forensic!.edgePerFrame?.[frameIdx]
+
+            const elaGrid = elaData?.regionGrid ? {
+              cells: elaData.regionGrid,
+              analysisWidth: elaData.analysisWidth ?? 720,
+              analysisHeight: elaData.analysisHeight ?? 480,
+            } : undefined
+
+            const noiseGrid = noiseData?.regionGrid ? {
+              cells: noiseData.regionGrid,
+              analysisWidth: noiseData.analysisWidth ?? 720,
+              analysisHeight: noiseData.analysisHeight ?? 480,
+            } : undefined
+
+            const edgeGrid = edgeData?.regionGrid ? {
+              cells: edgeData.regionGrid,
+              analysisWidth: edgeData.analysisWidth ?? 720,
+              analysisHeight: edgeData.analysisHeight ?? 480,
+            } : undefined
+
+            const imageW = forensic!.analysisWidth ?? 720
+            const imageH = forensic!.analysisHeight ?? 480
+
+            const regions = proposeRegionsForFrame(elaGrid, noiseGrid, edgeGrid, imageW, imageH)
+            return { frameIndex: frameIdx, regions }
+          })
+
+          // Merge across frames
+          const mergedRegions = mergeRegionsAcrossFrames(frameProposals, sortedFrameIndices.length)
+
+          if (mergedRegions.length > 0) {
+            setProgressDetail("Cropping and analyzing suspicious regions with AI...")
+
+            // Crop regions from best frames
+            const cropsWithIndex = await Promise.all(
+              mergedRegions.map(async (mr, i) => {
+                try {
+                  const frameBase64 = allFrames[mr.bestFrameIndex]
+                  if (!frameBase64) return { index: i, crop: null }
+                  const crop = await cropRegion(frameBase64, mr.box)
+                  return { index: i, crop }
+                } catch {
+                  return { index: i, crop: null }
+                }
+              })
+            )
+
+            // Call AI analysis API
+            const regionsForApi = cropsWithIndex
+              .filter((c) => c.crop !== null)
+              .map((c) => ({
+                index: c.index,
+                cropBase64: c.crop!,
+                forensicIntensity: mergedRegions[c.index].combinedIntensity,
+                sourceSignals: mergedRegions[c.index].sourceSignals,
+              }))
+
+            let aiResults: RegionAIAnalysis[] = []
+            let aiCallsMade = 0
+            let aiDegraded = false
+
+            if (regionsForApi.length > 0) {
+              try {
+                const aiResponse = await fetch("/api/analyze-regions", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ regions: regionsForApi, fileName: file.name }),
+                })
+                const aiData = await aiResponse.json()
+                aiResults = aiData.results ?? []
+                aiCallsMade = aiData.aiCallsMade ?? 0
+                aiDegraded = aiData.degraded ?? false
+              } catch {
+                aiDegraded = true
+              }
+            }
+
+            // Fuse scores
+            const fusedRegions = fuseRegionScores(mergedRegions, aiResults, sortedFrameIndices.length)
+
+            // Attach crop base64 to fused regions
+            for (const region of fusedRegions) {
+              const cropData = cropsWithIndex.find((c) => c.index === region.id)
+              if (cropData?.crop) region.cropBase64 = cropData.crop
+            }
+
+            regionResult = {
+              regions: fusedRegions,
+              allProposals: frameProposals.reduce((sum, fp) => sum + fp.regions.length, 0),
+              framesAnalyzed: sortedFrameIndices.length,
+              aiCallsMade,
+              processingMs: Date.now() - regionStart,
+              degraded: aiDegraded,
+            }
+            setRegionAnalysis(regionResult)
+          }
+        } catch (err) {
+          console.warn("[region-analysis] Error:", err instanceof Error ? err.message : err)
+        }
+        recordDuration(provenance, "regionAnalysisDurationMs", Date.now() - regionStart)
+      }
+      recordStep(provenance, "region-analysis")
 
       // Step 3b: Conditional temporal analysis
       let temporal: TemporalAnalysisResult | null = null
@@ -565,6 +698,17 @@ export default function ResultsPage() {
       ))
       setCombinedScore(combined)
 
+      // Compute forensic summary from all available data
+      setForensicSummary(computeForensicSummary({
+        frameExplanations: frameExplResult,
+        forensicResult: forensic,
+        temporalResult: temporal,
+        combinedScore: combined,
+        perFrameScores: detection?.perFrameScores,
+        framesAnalyzed: detection?.framesAnalyzed ?? allFrames.length,
+        regionAnalysis: regionResult ?? undefined,
+      }))
+
       provenance.degraded = degraded
       if (degraded.length > 0) {
         provenance.fallbackUsed = true
@@ -672,6 +816,17 @@ export default function ResultsPage() {
         Math.round(visualScore * weights.visual + analysis.overallScore * weights.text)
       ))
       setCombinedScore(combined)
+
+      // Recompute forensic summary on retry
+      setForensicSummary(computeForensicSummary({
+        frameExplanations,
+        forensicResult,
+        temporalResult,
+        combinedScore: combined,
+        perFrameScores: frameDetection?.perFrameScores,
+        framesAnalyzed: frameDetection?.framesAnalyzed ?? allFramesRef.current.length,
+        regionAnalysis: regionAnalysis ?? undefined,
+      }))
 
       await saveScan({
         fileName: uploadedFile.name,
@@ -971,6 +1126,18 @@ export default function ResultsPage() {
           </div>
         )}
 
+        {/* Forensic Summary — structured visual findings */}
+        {forensicSummary && (
+          <ForensicSummarySection
+            summary={forensicSummary}
+            frameImages={allFramesRef.current.reduce<Record<number, string>>((acc, frame, i) => {
+              if (frame) acc[i] = frame
+              return acc
+            }, {})}
+            regionAnalysis={regionAnalysis ?? undefined}
+          />
+        )}
+
         {/* Video + Audio analysis cards */}
         {videoMeta && (
           <div className="grid gap-6 lg:grid-cols-2">
@@ -1018,6 +1185,7 @@ export default function ResultsPage() {
             loading={frameExplanationLoading}
             onModeChange={handleModeChange}
             currentMode={analysisMode}
+            regionAnalysis={regionAnalysis ?? undefined}
           />
         )}
 
@@ -1064,6 +1232,7 @@ function PipelineBanner({
     "transcribing": <Mic className="h-5 w-5 animate-pulse text-primary" />,
     "detecting-deepfakes": <Eye className="h-5 w-5 animate-pulse text-primary" />,
     "forensic-analysis": <Shield className="h-5 w-5 animate-pulse text-primary" />,
+    "region-analysis": <Crosshair className="h-5 w-5 animate-pulse text-primary" />,
     "temporal-analysis": <Waves className="h-5 w-5 animate-pulse text-primary" />,
     "analyzing-vision": <Sparkles className="h-5 w-5 animate-pulse text-primary" />,
     "searching-claims": <Search className="h-5 w-5 animate-pulse text-primary" />,
@@ -1078,6 +1247,7 @@ function PipelineBanner({
     "extracting-metadata",
     "extracting-frames",
     "detecting-deepfakes",
+    "region-analysis",
     "analyzing-vision",
     "explaining-frames",
     "analyzing",
@@ -1087,6 +1257,7 @@ function PipelineBanner({
     "extracting-metadata": "Metadata",
     "extracting-frames": "Frames + STT",
     "detecting-deepfakes": "Detector + Forensic",
+    "region-analysis": "Region Detection",
     "analyzing-vision": "Vision + Search",
     "explaining-frames": "Frame AI",
     "analyzing": "LLM Analysis",

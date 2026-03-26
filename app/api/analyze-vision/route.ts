@@ -67,6 +67,7 @@ export async function POST(request: Request) {
 
 RULES:
 - Only describe what you observe: lighting inconsistencies, blending artifacts, unnatural facial features, background discontinuities, compression artifacts, edge distortions.
+- FINGER COUNT CHECK: If hands are visible, count the fingers on each hand. Humans have exactly 5 fingers per hand (including thumb). If any hand has more or fewer than 5 fingers, fused fingers, extra joints, or impossible finger positions, report it as an observation (e.g. "Hand in frame 2 appears to have 6 fingers on the right hand").
 - You are NOT allowed to determine whether the video is fake or real.
 - Do NOT output any probability, score, verdict, or judgment about authenticity.
 - Return ONLY a JSON array of strings, each describing one observation.

@@ -117,6 +117,25 @@ export function ImageFindingsSection({ findings }: ImageFindingsSectionProps) {
                   <p className="text-sm font-medium leading-relaxed text-foreground">
                     {finding.description}
                   </p>
+
+                  {/* Evidence crop thumbnail */}
+                  {finding.evidenceCropBase64 && (
+                    <div className="mt-3 inline-block">
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {finding.evidenceLabel || "Evidence"}
+                      </p>
+                      <div className="relative overflow-hidden rounded-lg border-2 border-red-500/40 bg-black/20">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`data:image/jpeg;base64,${finding.evidenceCropBase64}`}
+                          alt="Evidence crop"
+                          className="max-h-[200px] max-w-[250px] object-contain"
+                        />
+                        <div className="absolute inset-0 rounded-lg ring-2 ring-inset ring-red-500/20" />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <span
                       className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ring-1 ${config.bgClass} ${config.textClass} ${config.ringClass}`}

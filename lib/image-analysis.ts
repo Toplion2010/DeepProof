@@ -18,11 +18,21 @@ export type ImageFindingType =
   | "layout-anomaly"
   | "authentic-signal"
 
+export interface FindingRegion {
+  x: number // normalized 0-1
+  y: number
+  w: number
+  h: number
+}
+
 export interface ImageFinding {
   type: ImageFindingType
   severity: "low" | "medium" | "high"
   description: string
   source: "vision" | "metadata" | "system"
+  region?: FindingRegion
+  evidenceCropBase64?: string
+  evidenceLabel?: string
 }
 
 export interface MetadataSignals {

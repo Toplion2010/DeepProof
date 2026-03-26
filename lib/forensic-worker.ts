@@ -4,9 +4,9 @@
  * Uses OffscreenCanvas where available, signals fallback otherwise.
  */
 
-import { computeELA, computeNoiseVariance, computeTemporalDiff } from "./forensic-algorithms"
+import { computeELA, computeNoiseVariance, computeTemporalDiff, computeEdgeIntensity } from "./forensic-algorithms"
 
-type MessageType = "ela" | "noise" | "temporal" | "init"
+type MessageType = "ela" | "noise" | "temporal" | "edge" | "init"
 
 interface WorkerMessage {
   type: MessageType
@@ -29,7 +29,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   }
 
   // Validate message type
-  if (type !== "ela" && type !== "noise" && type !== "temporal") {
+  if (type !== "ela" && type !== "noise" && type !== "temporal" && type !== "edge") {
     return // silently ignore unknown types
   }
 
@@ -45,6 +45,8 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       await handleNoise(id, frames)
     } else if (type === "temporal") {
       await handleTemporal(id, frames)
+    } else if (type === "edge") {
+      await handleEdge(id, frames)
     }
   } catch (err) {
     self.postMessage({
@@ -111,7 +113,7 @@ function recompressPixels(bitmap: ImageBitmap, width: number, height: number, qu
 }
 
 async function handleELA(id: number, frames: string[]) {
-  const results: Array<{ score: number; maxRegionalDeviation: number; meanDeviation: number }> = []
+  const results: Array<ReturnType<typeof computeELA>> = []
 
   for (const frame of frames) {
     const bitmap = await loadImage(frame)
@@ -141,7 +143,7 @@ async function handleELA(id: number, frames: string[]) {
 }
 
 async function handleNoise(id: number, frames: string[]) {
-  const results: Array<{ score: number; varianceOfVariance: number }> = []
+  const results: Array<ReturnType<typeof computeNoiseVariance>> = []
 
   for (const frame of frames) {
     const bitmap = await loadImage(frame)
@@ -164,6 +166,30 @@ async function handleNoise(id: number, frames: string[]) {
     id,
     type: "noise",
     noiseScore: Math.max(0, Math.min(100, avgScore)),
+    framesAnalyzed: results.length,
+    perFrameResults: results,
+  })
+}
+
+async function handleEdge(id: number, frames: string[]) {
+  const results: Array<ReturnType<typeof computeEdgeIntensity>> = []
+
+  for (const frame of frames) {
+    const bitmap = await loadImage(frame)
+    if (!bitmap || bitmap.width < 200) {
+      if (bitmap) bitmap.close()
+      continue
+    }
+
+    const { pixels, width, height } = getPixels(bitmap, 720)
+    bitmap.close()
+
+    results.push(computeEdgeIntensity(pixels, width, height))
+  }
+
+  self.postMessage({
+    id,
+    type: "edge",
     framesAnalyzed: results.length,
     perFrameResults: results,
   })
