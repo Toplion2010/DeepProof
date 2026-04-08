@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const WEBSITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://deepproof.app";
+const WEBSITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://deepproof-liart.vercel.app";
 
 const API_BASE = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
