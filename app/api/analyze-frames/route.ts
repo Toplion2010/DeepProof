@@ -21,6 +21,10 @@ interface AnalyzeFramesRequest {
   }>
 }
 
+// Allow long-running vision calls — Vercel's default function limit would
+// otherwise kill multi-batch deep-mode analysis before it completes.
+export const maxDuration = 60
+
 const VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 const BATCH_SIZE = 4
 const BATCH_TIMEOUT_MS = 20_000
@@ -79,12 +83,15 @@ export async function POST(request: Request) {
 
     const allExplanations: FrameExplanation[] = []
     let degraded = false
+    let firstError: string | undefined
     const totalDeadline = Date.now() + TOTAL_TIMEOUT_MS
 
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-      // Check total timeout
+      // Check total timeout — stop scheduling new batches, but keep whatever
+      // frames earlier batches already produced.
       if (Date.now() >= totalDeadline) {
         degraded = true
+        firstError ??= "Frame analysis timed out before all frames were processed"
         break
       }
 
@@ -103,8 +110,11 @@ export async function POST(request: Request) {
       )
 
       if (batchResult.error) {
+        // A failed batch shouldn't wipe out frames other batches succeeded on.
+        // Mark the result degraded, remember the reason, and keep going.
         degraded = true
-        break
+        firstError ??= batchResult.error
+        continue
       }
 
       allExplanations.push(...batchResult.frames)
@@ -115,6 +125,9 @@ export async function POST(request: Request) {
       modelId: VISION_MODEL,
       mode,
       degraded,
+      // Surface the real reason so the UI/logs show what actually failed
+      // instead of the generic "partially unavailable" fallback.
+      ...(degraded && firstError ? { error: firstError } : {}),
       processingMs: Date.now() - startMs,
     } satisfies FrameExplanationResult)
   } catch (error) {
