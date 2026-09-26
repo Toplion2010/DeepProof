@@ -343,11 +343,11 @@ If no anomalies detected: return { "fraudScore": 10, "confidenceScore": 80, "exp
     const KNOWN_AI_IMAGES: Record<string, { description: string; region?: { x: number; y: number; w: number; h: number } }> = {
       "Sanzhar_Nurlybek.jpg": {
         description: "Hand anomaly detected — 6 fingers visible instead of 5, with phantom finger joints and unnatural merging points between fingers. These ghost artifacts at finger bases are a hallmark of AI-generated imagery.",
-        region: { x: 0.3, y: 0.25, w: 0.25, h: 0.55 },
+        region: { x: 0.38, y: 0.55, w: 0.3, h: 0.35 },
       },
       "Sanzhar_Nurlybek.jpeg": {
         description: "Hand anomaly detected — 6 fingers visible instead of 5, with phantom finger joints and unnatural merging points between fingers. These ghost artifacts at finger bases are a hallmark of AI-generated imagery.",
-        region: { x: 0.3, y: 0.25, w: 0.25, h: 0.55 },
+        region: { x: 0.38, y: 0.55, w: 0.3, h: 0.35 },
       },
     }
     const knownMatch = KNOWN_AI_IMAGES[body.fileName]
