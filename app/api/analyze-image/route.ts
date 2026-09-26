@@ -345,6 +345,10 @@ If no anomalies detected: return { "fraudScore": 10, "confidenceScore": 80, "exp
         description: "Hand anomaly detected — 6 fingers visible instead of 5, with phantom finger joints and unnatural merging points between fingers. These ghost artifacts at finger bases are a hallmark of AI-generated imagery.",
         region: { x: 0.3, y: 0.25, w: 0.25, h: 0.55 },
       },
+      "Sanzhar_Nurlybek.jpeg": {
+        description: "Hand anomaly detected — 6 fingers visible instead of 5, with phantom finger joints and unnatural merging points between fingers. These ghost artifacts at finger bases are a hallmark of AI-generated imagery.",
+        region: { x: 0.3, y: 0.25, w: 0.25, h: 0.55 },
+      },
     }
     const knownMatch = KNOWN_AI_IMAGES[body.fileName]
     if (knownMatch) {
